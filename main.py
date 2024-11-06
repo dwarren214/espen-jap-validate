@@ -1,11 +1,12 @@
-from fastapi import FastAPI, HTTPException, Depends, Request
+from fastapi import FastAPI, HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
-from typing import List
+from typing import List, Dict
 import os
 import json
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
+from utils import quote_identifiers  # Import the helper function
 
 app = FastAPI()
 
@@ -46,9 +47,14 @@ class TableNames(BaseModel):
 def execute_sql_query(query_data: SQLQuery):
     session = SessionLocal()
     try:
-        result = session.execute(text(query_data.query))
+        # Automatically quote identifiers in the query
+        quoted_query = quote_identifiers(query_data.query)
+        
+        # Execute the quoted query with parameters
+        result = session.execute(text(quoted_query))
         rows = result.fetchall()
         column_names = result.keys()
+        
         # Convert to list of dictionaries
         result_list = [dict(zip(column_names, row)) for row in rows]
         return result_list
@@ -64,8 +70,11 @@ def fetch_column_names_and_types(table_data: TableNames):
     results = {}
     try:
         for table_name in table_data.tables:
+            # Quote the table name
+            quoted_table = f'"{table_name}"'
+            
             # Query to get fields and descriptions
-            query = text("""
+            query = text(f"""
                 SELECT "Fields"
                 FROM espen_tables
                 WHERE LOWER("Name_Analytical_Table") = :table_name
