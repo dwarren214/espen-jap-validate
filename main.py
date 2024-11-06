@@ -37,7 +37,6 @@ def api_key_auth(credentials: HTTPAuthorizationCredentials = Depends(security)):
 # Pydantic models for request bodies
 class SQLQuery(BaseModel):
     query: str
-    parameters: dict = {}
 
 class TableNames(BaseModel):
     tables: List[str]
@@ -47,7 +46,7 @@ class TableNames(BaseModel):
 def execute_sql_query(query_data: SQLQuery):
     session = SessionLocal()
     try:
-        result = session.execute(text(query_data.query), query_data.parameters)
+        result = session.execute(text(query_data.query))
         rows = result.fetchall()
         column_names = result.keys()
         # Convert to list of dictionaries
