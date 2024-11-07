@@ -1,14 +1,19 @@
-# utils.py
 import sqlparse
-from sqlparse.sql import IdentifierList, Identifier
-from sqlparse.tokens import Keyword, DML
+from sqlparse.sql import IdentifierList, Identifier, Function, TokenList
+from sqlparse.tokens import Keyword, DML, Whitespace, Punctuation
+
+def is_subselect(parsed):
+    if not parsed.is_group:
+        return False
+    for item in parsed.tokens:
+        if item.ttype is DML and item.value.upper() == 'SELECT':
+            return True
+    return False
 
 def quote_identifiers(query: str) -> str:
     """
-    Parses the SQL query and automatically quotes table and column names.
-    
-    Note: This function assumes that identifiers (table and column names) do not include
-    any SQL reserved keywords and are separated by spaces or commas.
+    Parses the SQL query and automatically quotes table and column names,
+    excluding SQL keywords and functions.
     """
     parsed = sqlparse.parse(query)
     if not parsed:
@@ -17,42 +22,39 @@ def quote_identifiers(query: str) -> str:
     stmt = parsed[0]
     quoted_query = ""
 
-    # Flags to determine when to quote identifiers
-    quote_next_identifier = False
-    in_where = False
+    # Iterate through the tokens recursively
+    def process_tokens(tokens: TokenList):
+        nonlocal quoted_query
+        for token in tokens:
+            if token.is_group:
+                # Recursively process subgroups
+                process_tokens(token)
+            elif isinstance(token, Function):
+                # Do not quote function names
+                quoted_query += token.value
+            elif isinstance(token, IdentifierList):
+                identifiers = []
+                for identifier in token.get_identifiers():
+                    identifiers.append(quote_identifier(identifier))
+                quoted_query += ", ".join(identifiers) + " "
+            elif isinstance(token, Identifier):
+                quoted_query += quote_identifier(token) + " "
+            elif token.ttype is Keyword or token.ttype is DML:
+                quoted_query += token.value.upper() + " "
+            elif token.ttype is Whitespace:
+                quoted_query += " "
+            elif token.ttype is Punctuation:
+                quoted_query += token.value
+            else:
+                quoted_query += token.value + " "
 
-    for token in stmt.tokens:
-        if token.ttype is DML and token.value.upper() == 'SELECT':
-            quoted_query += token.value + " "
-            quote_next_identifier = True
-            continue
+    def quote_identifier(identifier: Identifier) -> str:
+        # If the identifier is a function, do not quote
+        if isinstance(identifier, Function):
+            return identifier.value
+        # Otherwise, quote the real name
+        return f'"{identifier.get_real_name()}"'
 
-        if token.ttype is Keyword and token.value.upper() == 'FROM':
-            quoted_query += token.value + " "
-            quote_next_identifier = True
-            continue
+    process_tokens(stmt.tokens)
+    return ' '.join(quoted_query.split())
 
-        if token.ttype is Keyword and token.value.upper() in ['WHERE', 'LIMIT', 'ORDER BY', 'GROUP BY']:
-            quoted_query += token.value + " "
-            quote_next_identifier = False
-            continue
-
-        if isinstance(token, IdentifierList):
-            identifiers = []
-            for identifier in token.get_identifiers():
-                identifiers.append(f'"{identifier.get_real_name()}"')
-            quoted_query += ", ".join(identifiers) + " "
-            continue
-
-        if isinstance(token, Identifier):
-            quoted_query += f'"{token.get_real_name()}" '
-            continue
-
-        if token.ttype is Keyword:
-            quoted_query += token.value + " "
-            continue
-
-        # Handle other tokens (e.g., literals, operators)
-        quoted_query += token.value + " "
-
-    return quoted_query.strip()
