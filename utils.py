@@ -1,60 +1,28 @@
-import sqlparse
-from sqlparse.sql import IdentifierList, Identifier, Function, TokenList
-from sqlparse.tokens import Keyword, DML, Whitespace, Punctuation
-
-def is_subselect(parsed):
-    if not parsed.is_group:
-        return False
-    for item in parsed.tokens:
-        if item.ttype is DML and item.value.upper() == 'SELECT':
-            return True
-    return False
+import re
 
 def quote_identifiers(query: str) -> str:
     """
-    Parses the SQL query and automatically quotes table and column names,
-    excluding SQL keywords and functions.
+    Quotes identifiers (table names and column names) in an SQL query string.
+    Assumes identifiers do not contain whitespace or special characters,
+    except for underscores. Ignores strings inside single quotes.
     """
-    parsed = sqlparse.parse(query)
-    if not parsed:
-        return query  # Return original if parsing fails
+    # Regular expression to match identifiers outside of single quotes
+    identifier_pattern = re.compile(r'(?<!\')\b([A-Za-z_][A-Za-z0-9_]*)\b(?!\')')
 
-    stmt = parsed[0]
-    quoted_query = ""
+    # List of SQL keywords/functions to ignore when quoting
+    keywords = {
+        "SELECT", "FROM", "WHERE", "AND", "OR", "AS", "COUNT", "DISTINCT", "JOIN",
+        "ON", "IN", "GROUP", "BY", "ORDER", "LIMIT", "OFFSET", "IS", "NULL", "NOT",
+        "BETWEEN", "LIKE", "HAVING", "CASE", "WHEN", "THEN", "ELSE", "END"
+    }
 
-    # Iterate through the tokens recursively
-    def process_tokens(tokens: TokenList):
-        nonlocal quoted_query
-        for token in tokens:
-            if token.is_group:
-                # Recursively process subgroups
-                process_tokens(token)
-            elif isinstance(token, Function):
-                # Do not quote function names
-                quoted_query += token.value
-            elif isinstance(token, IdentifierList):
-                identifiers = []
-                for identifier in token.get_identifiers():
-                    identifiers.append(quote_identifier(identifier))
-                quoted_query += ", ".join(identifiers) + " "
-            elif isinstance(token, Identifier):
-                quoted_query += quote_identifier(token) + " "
-            elif token.ttype is Keyword or token.ttype is DML:
-                quoted_query += token.value.upper() + " "
-            elif token.ttype is Whitespace:
-                quoted_query += " "
-            elif token.ttype is Punctuation:
-                quoted_query += token.value
-            else:
-                quoted_query += token.value + " "
+    def replacer(match):
+        word = match.group(0)
+        # Quote the identifier if it is not a keyword
+        if word.upper() not in keywords:
+            return f'"{word}"'
+        return word
 
-    def quote_identifier(identifier: Identifier) -> str:
-        # If the identifier is a function, do not quote
-        if isinstance(identifier, Function):
-            return identifier.value
-        # Otherwise, quote the real name
-        return f'"{identifier.get_real_name()}"'
-
-    process_tokens(stmt.tokens)
-    return ' '.join(quoted_query.split())
-
+    # Replace identifiers in the query string
+    quoted_query = identifier_pattern.sub(replacer, query)
+    return quoted_query
