@@ -1,5 +1,5 @@
 local
 .env
-.kamal/secrets
+deploy/.kamal/secrets
 .idea
 .venv

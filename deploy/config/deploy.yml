@@ -1,0 +1,61 @@
+service: espen-sql-api
+
+image: dimagi/espen
+
+env:
+  secret:
+    - DATABASE_URL
+    - API_KEY
+
+# https://kamal-deploy.org/docs/configuration#using-different-roles-for-servers
+servers:
+  web:
+    hosts:
+      - 107.20.181.165
+    options:
+      expose: "8000"
+
+# To use a non-root user see https://kamal-deploy.org/docs/configuration/ssh/#the-ssh-user
+# ssh:
+#   user: kamal
+
+# See https://kamal-deploy.org/docs/configuration/builders/ for config options
+builder:
+  arch: amd64
+  dockerfile: '../Dockerfile'
+  context: '../'
+
+# See https://kamal-deploy.org/docs/configuration/docker-registry/ for config options
+registry:
+  server: 474668409091.dkr.ecr.us-east-1.amazonaws.com
+  username: AWS
+  password: <%= %x(./registry_password.sh) %>
+
+accessories:
+  # docker hostname will be '<<cookiecutter.project_slug>>-postgres'
+  postgres:
+    image: postgres
+    host: 107.20.181.165
+    directories:
+      - data:/var/lib/postgresql/data
+    env:
+      clear:
+        POSTGRES_USER: espen
+        POSTGRES_DB: espen
+      secret:
+        - POSTGRES_PASSWORD
+
+# See https://kamal-deploy.org/docs/configuration/proxy/ for config options
+proxy:
+  ssl: true
+  host: ec2-107-20-181-165.compute-1.amazonaws.com
+  app_port: 8000
+
+logging:
+  driver: awslogs
+  options:
+    awslogs-region: 'us-east-1'
+    awslogs-group: 'espen-sql-api'
+
+ssh:
+  user: ocs
