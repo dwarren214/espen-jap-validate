@@ -66,6 +66,7 @@ Create a domain / subdomain and point it to the EC2 instance static IP or DNS.
 ## 4. Deploy services
 
 1. Update the `deploy/config/.kamal/secrets` file with the necessary secrets.
+   a. For production values look for the "ESPEN Kamal Secrets" entry in the OCS 1Password vault.
 2. Update the `deploy/config/deploy.yml` file with the EC2 instance IP and the domain name
 3. Run `kamal setup`
    
