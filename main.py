@@ -1,15 +1,19 @@
-from fastapi import FastAPI, HTTPException, Depends
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
-from typing import List, Dict, Optional
-import os
-import json
-import io
 import csv
+import io
+import os
+from typing import List, Optional
+
+from dotenv import load_dotenv
+from fastapi import Depends, FastAPI, HTTPException
+from fastapi.responses import StreamingResponse
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from pydantic import BaseModel
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
+
 from utils import quote_identifiers  # Import the helper function
+
+load_dotenv()
 
 app = FastAPI()
 
