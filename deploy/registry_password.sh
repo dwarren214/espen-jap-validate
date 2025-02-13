@@ -8,7 +8,7 @@ REGION=us-east-1
 PROFILE_ARG=""
 if [ -z "$CI" ]; then
   # if not in github actions, specify the profile
-  PROFILE_ARG=" --profile ${AWS_PROFILE:-ocs-espen}"
+  PROFILE_ARG=" --profile ${AWS_PROFILE:-ocs-misc}"
 fi
 
 aws sts get-caller-identity $PROFILE_ARG &> /dev/null

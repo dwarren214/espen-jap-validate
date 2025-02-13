@@ -7,7 +7,7 @@ env:
     - DATABASE_URL
     - API_KEY
 
-# https://kamal-deploy.org/docs/configuration#using-different-roles-for-servers
+# https://kamal-deploy.org/docs/configuration/roles/
 servers:
   web:
     hosts:
@@ -16,14 +16,16 @@ servers:
       expose: "8000"
 
 # To use a non-root user see https://kamal-deploy.org/docs/configuration/ssh/#the-ssh-user
-# ssh:
-#   user: kamal
+ssh:
+  user: ocs
 
 # See https://kamal-deploy.org/docs/configuration/builders/ for config options
 builder:
   arch: amd64
   dockerfile: '../Dockerfile'
   context: '../'
+  # Without this I was hitting this issue https://github.com/docker/buildx/issues/1519
+  driver: docker
 
 # See https://kamal-deploy.org/docs/configuration/docker-registry/ for config options
 registry:
@@ -48,14 +50,10 @@ accessories:
 # See https://kamal-deploy.org/docs/configuration/proxy/ for config options
 proxy:
   ssl: true
-  host: ec2-107-20-181-165.compute-1.amazonaws.com
+  host: espen-sql-api.openchatstudio.com
   app_port: 8000
 
 logging:
-  driver: awslogs
+  driver: json-file
   options:
-    awslogs-region: 'us-east-1'
-    awslogs-group: 'espen-sql-api'
-
-ssh:
-  user: ocs
+    max-size: 100m

@@ -60,7 +60,7 @@ class TableNames(BaseModel):
     tables: List[str]
 
 
-@app.get("/")
+@app.get("/up")
 def status():
     return {"status": "up"}
 
