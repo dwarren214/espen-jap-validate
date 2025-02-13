@@ -60,6 +60,11 @@ class TableNames(BaseModel):
     tables: List[str]
 
 
+@app.get("/")
+def status():
+    return {"status": "up"}
+
+
 # Endpoint to execute SQL queries
 @app.post("/execute_sql_query", dependencies=[Depends(api_key_auth)])
 def execute_sql_query(query_data: SQLQuery):
