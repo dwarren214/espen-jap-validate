@@ -1,0 +1,59 @@
+service: espen-sql-api
+
+image: dimagi/espen
+
+env:
+  secret:
+    - DATABASE_URL
+    - API_KEY
+
+# https://kamal-deploy.org/docs/configuration/roles/
+servers:
+  web:
+    hosts:
+      - 107.20.181.165
+    options:
+      expose: "8000"
+
+# To use a non-root user see https://kamal-deploy.org/docs/configuration/ssh/#the-ssh-user
+ssh:
+  user: ocs
+
+# See https://kamal-deploy.org/docs/configuration/builders/ for config options
+builder:
+  arch: amd64
+  dockerfile: '../Dockerfile'
+  context: '../'
+  # Without this I was hitting this issue https://github.com/docker/buildx/issues/1519
+  driver: docker
+
+# See https://kamal-deploy.org/docs/configuration/docker-registry/ for config options
+registry:
+  server: 474668409091.dkr.ecr.us-east-1.amazonaws.com
+  username: AWS
+  password: <%= %x(./registry_password.sh) %>
+
+accessories:
+  # docker hostname will be '<<cookiecutter.project_slug>>-postgres'
+  postgres:
+    image: postgres
+    host: 107.20.181.165
+    directories:
+      - data:/var/lib/postgresql/data
+    env:
+      clear:
+        POSTGRES_USER: espen
+        POSTGRES_DB: espen
+      secret:
+        - POSTGRES_PASSWORD
+
+# See https://kamal-deploy.org/docs/configuration/proxy/ for config options
+proxy:
+  ssl: true
+  host: espen-sql-api.openchatstudio.com
+  app_port: 8000
+
+logging:
+  driver: json-file
+  options:
+    max-size: 100m
