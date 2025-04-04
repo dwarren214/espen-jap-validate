@@ -33,3 +33,10 @@ This project requires access to a PostgreSQL database.
     ```shell
     uv run uvicorn main:app --reload
     ```
+
+5. Test the API
+
+   ```
+   export API_KEY="xxx"
+   curl -X POST localhost:8000/fetch_column_names_and_types -H "Authorization: Bearer $API_KEY" -d'{"tables": ["Afro_Admin0"]}' -H "Content-type: application/json"
+   ```

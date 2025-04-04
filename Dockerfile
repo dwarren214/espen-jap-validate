@@ -1,5 +1,21 @@
 FROM python:3.12-slim-bookworm
 
+ENV ACCEPT_EULA=Y
+RUN apt-get update && apt-get install -y --no-install-recommends curl gnupg
+
+
+RUN --mount=target=/var/lib/apt/lists,type=cache,sharing=locked \
+    --mount=target=/var/cache/apt,type=cache,sharing=locked \
+    rm -f /etc/apt/apt.conf.d/docker-clean \
+    && curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor -o /usr/share/keyrings/microsoft-prod.gpg \
+    && curl https://packages.microsoft.com/config/debian/12/prod.list > /etc/apt/sources.list.d/microsoft-prod.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+        unixodbc-dev \
+        msodbcsql18 \
+    && apt-get purge -y --auto-remove -o APT::AutoRemove::RecommendsImportant=false \
+    && rm -rf /var/lib/apt/lists/*
+
 # This approximately follows this guide: https://hynek.me/articles/docker-uv/
 # Which creates a standalone environment with the dependencies.
 # - Silence uv complaining about not being able to use hard links,
