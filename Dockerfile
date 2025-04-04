@@ -1,17 +1,5 @@
 FROM python:3.12-slim-bookworm
 
-RUN --mount=target=/var/lib/apt/lists,type=cache,sharing=locked \
-    --mount=target=/var/cache/apt,type=cache,sharing=locked \
-    rm -f /etc/apt/apt.conf.d/docker-clean && \
-    apt-get update \
-    && apt-get install -y \
-    # psycopg2 dependencies
-    libpq-dev \
-    # psql client for dbshell
-    postgresql-client \
-    # cleaning up unused files
-    && apt-get purge -y --auto-remove -o APT::AutoRemove::RecommendsImportant=false
-
 # This approximately follows this guide: https://hynek.me/articles/docker-uv/
 # Which creates a standalone environment with the dependencies.
 # - Silence uv complaining about not being able to use hard links,
@@ -43,7 +31,7 @@ RUN addgroup --system fastapi \
     && adduser --system --ingroup fastapi fastapi
 
 WORKDIR /code
-COPY --chown=fastapi:fastapi main.py utils.py /code
+COPY --chown=fastapi:fastapi main.py utils.py espen.db /code
 
 USER fastapi
 

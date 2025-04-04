@@ -1,8 +1,10 @@
 import csv
 import io
 import os
+from pathlib import Path
 from typing import List, Optional
 
+import orjson
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
@@ -13,6 +15,7 @@ from sqlalchemy.orm import sessionmaker
 
 from utils import quote_identifiers  # Import the helper function
 
+BASE_PATH = Path(__file__).resolve(strict=True).parent
 load_dotenv()
 
 app = FastAPI()
@@ -27,6 +30,10 @@ if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
 # Create SQLAlchemy engine and session
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(bind=engine)
+
+meta_db_path = BASE_PATH / "espen.db"
+meta_engine = create_engine("sqlite:///" + str(meta_db_path))
+MetaSessionLocal = sessionmaker(bind=meta_engine)
 
 # API Key configuration
 API_KEY = os.getenv("API_KEY")  # Set this in your environment variables
@@ -124,7 +131,7 @@ def execute_sql_query(query_data: SQLQuery):
 # Endpoint to fetch column names and types
 @app.post("/fetch_column_names_and_types", dependencies=[Depends(api_key_auth)])
 def fetch_column_names_and_types(table_data: TableNames):
-    session = SessionLocal()
+    meta_session = MetaSessionLocal()
     results = {}
     try:
         for table_name in table_data.tables:
@@ -134,9 +141,9 @@ def fetch_column_names_and_types(table_data: TableNames):
                 FROM espen_tables
                 WHERE LOWER("Name_Analytical_Table") = :table_name
             """)
-            res = session.execute(query, {"table_name": table_name.lower()}).fetchone()
+            res = meta_session.execute(query, {"table_name": table_name.lower()}).fetchone()
             if res:
-                fields = res[0]
+                fields = orjson.loads(res[0])
                 results[table_name] = {
                     field["Name"]: field["Description"] for field in fields
                 }
@@ -146,4 +153,4 @@ def fetch_column_names_and_types(table_data: TableNames):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
     finally:
-        session.close()
+        meta_session.close()

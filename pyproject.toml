@@ -7,8 +7,10 @@ requires-python = ">=3.12"
 dependencies = [
     "alembic>=1.14.0",
     "fastapi>=0.115.4",
+    "orjson>=3.10.16",
     "psycopg2-binary>=2.9.10",
     "pydantic>=2.9.2",
+    "pyodbc>=5.2.0",
     "python-dotenv>=1.0.1",
     "sqlalchemy>=2.0.36",
     "sqlglot>=25.29.0",
