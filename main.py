@@ -24,6 +24,7 @@ app = FastAPI()
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 # Adjust for Heroku Postgres URL scheme
+IS_POSTGRES = "postgres" in DATABASE_URL and "mssql" not in DATABASE_URL
 if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
@@ -78,7 +79,7 @@ def execute_sql_query(query_data: SQLQuery):
     session = SessionLocal()
     try:
         # Automatically quote identifiers in the query
-        quoted_query = quote_identifiers(query_data.query)
+        quoted_query = quote_identifiers(query_data.query, IS_POSTGRES)
 
         # Execute the quoted query with parameters
         result = session.execute(text(quoted_query))
