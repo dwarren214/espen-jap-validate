@@ -1,6 +1,8 @@
 import csv
 import io
+import logging
 import os
+import sys
 from pathlib import Path
 from typing import List, Optional
 
@@ -17,6 +19,14 @@ from utils import quote_identifiers  # Import the helper function
 
 BASE_PATH = Path(__file__).resolve(strict=True).parent
 load_dotenv()
+
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
+
+stream_handler = logging.StreamHandler(sys.stdout)
+stream_handler.setFormatter(formatter)
+logger.addHandler(stream_handler)
 
 app = FastAPI()
 
