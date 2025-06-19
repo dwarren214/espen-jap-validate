@@ -3,3 +3,4 @@ local
 deploy/.kamal/secrets
 .idea
 .venv
+.DS_Store
