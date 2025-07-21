@@ -53,6 +53,8 @@ API_KEY = os.getenv("API_KEY")  # Set this in your environment variables
 if not API_KEY:
     raise ValueError("API_KEY environment variable is not set.")
 
+ESPEN_CAMPAIGN_HUB_KEY = os.getenv("ESPEN_CAMPAIGN_HUB_KEY")
+
 security = HTTPBearer()
 
 
@@ -179,7 +181,7 @@ def fetch_campaign_hub_data():
     from the AFRO region with a campaign start year greater than last year.
     """
     previous_year = datetime.now().year - 1
-    headers = {"access_token": os.getenv("ESPEN_CAMPAIGN_HUB_KEY")}
+    headers = {"access_token": ESPEN_CAMPAIGN_HUB_KEY}
     response = httpx.get(url="https://lbdatabaseapi.azurewebsites.net/campaign_hub_download", headers=headers)
 
     if response.status_code == 200:
