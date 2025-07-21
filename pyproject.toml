@@ -6,7 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "alembic>=1.14.0",
-    "fastapi>=0.115.4",
+    "fastapi[standard]>=0.115.4",
     "openai>=1.84.0",
     "orjson>=3.10.16",
     "psycopg2-binary>=2.9.10",
@@ -16,6 +16,7 @@ dependencies = [
     "sqlalchemy>=2.0.36",
     "sqlglot>=25.29.0",
     "uvicorn>=0.32.0",
+    "httpx>=0.28.1",
 ]
 
 [dependency-groups]

@@ -5,6 +5,8 @@ import os
 import sys
 from pathlib import Path
 from typing import List, Optional
+import httpx
+from datetime import datetime
 
 import orjson
 from dotenv import load_dotenv
@@ -152,7 +154,9 @@ def fetch_column_names_and_types(table_data: TableNames):
                 FROM espen_tables
                 WHERE LOWER("Name_Analytical_Table") = :table_name
             """)
-            res = meta_session.execute(query, {"table_name": table_name.lower()}).fetchone()
+            res = meta_session.execute(
+                query, {"table_name": table_name.lower()}
+            ).fetchone()
             if res:
                 fields = orjson.loads(res[0])
                 results[table_name] = {
@@ -165,3 +169,27 @@ def fetch_column_names_and_types(table_data: TableNames):
         raise HTTPException(status_code=400, detail=str(e))
     finally:
         meta_session.close()
+
+
+# Endpoint to fetch campaign data
+@app.get("/fetch_campaign_hub_data", dependencies=[Depends(api_key_auth)])
+def fetch_campaign_hub_data():
+    """
+    Fetches campaign data from the ESPEN Campaign Hub API. The data is filtered to include only records
+    from the AFRO region with a campaign start year greater than last year.
+    """
+    previous_year = datetime.now().year - 1
+    headers = {"access_token": os.getenv("ESPEN_CAMPAIGN_HUB_KEY")}
+    response = httpx.get(url="https://lbdatabaseapi.azurewebsites.net/campaign_hub_download", headers=headers)
+
+    if response.status_code == 200:
+        records = response.json()
+        final_response = []
+        for record in records:
+            if record.get("WHO Region") == "AFRO" and record.get("Campaign Start Year", 0) > previous_year:
+                cleaned_data = record | {"Diseases Targeted": record.get("Diseases Targeted", "unspecified")}
+                final_response.append(cleaned_data)
+
+        return final_response
+    else:
+        raise HTTPException(status_code=response.status_code, detail=response.text)
