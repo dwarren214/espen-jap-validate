@@ -6,6 +6,7 @@ env:
   secret:
     - DATABASE_URL
     - API_KEY
+    - ESPEN_CAMPAIGN_HUB_KEY
 
 # https://kamal-deploy.org/docs/configuration/roles/
 servers:
