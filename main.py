@@ -54,6 +54,8 @@ if not API_KEY:
     raise ValueError("API_KEY environment variable is not set.")
 
 ESPEN_CAMPAIGN_HUB_KEY = os.getenv("ESPEN_CAMPAIGN_HUB_KEY")
+if not ESPEN_CAMPAIGN_HUB_KEY:
+    logger.warning("ESPEN_CAMPAIGN_HUB_KEY environment variable is not set. Campaign data may not be available.")
 
 security = HTTPBearer()
 
