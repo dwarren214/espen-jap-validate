@@ -190,7 +190,8 @@ def fetch_campaign_hub_data():
         records = response.json()
         final_response = []
         for record in records:
-            if record.get("WHO Region") == "AFRO" and record.get("Campaign Start Year", 0) > previous_year:
+            # record.get("Campaign Start Year", 0) or 0) ensures we handle None values
+            if record.get("WHO Region") == "AFRO" and (record.get("Campaign Start Year", 0) or 0) > previous_year:
                 cleaned_data = record | {"Diseases Targeted": record.get("Diseases Targeted", "unspecified")}
                 final_response.append(cleaned_data)
 
