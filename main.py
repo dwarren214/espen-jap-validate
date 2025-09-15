@@ -193,6 +193,10 @@ def fetch_campaign_hub_data():
             # record.get("Campaign Start Year", 0) or 0) ensures we handle None values
             if record.get("WHO Region") == "AFRO" and (record.get("Campaign Start Year", 0) or 0) > previous_year:
                 cleaned_data = record | {"Diseases Targeted": record.get("Diseases Targeted", "unspecified")}
+                cleaned_data.pop("PCCS Coverage", None)
+                cleaned_data.pop("Geographic Coverage", None)
+                cleaned_data.pop("Therapeutic Coverage", None)
+                cleaned_data.pop("Administrative Coverage", None)
                 final_response.append(cleaned_data)
 
         return final_response
