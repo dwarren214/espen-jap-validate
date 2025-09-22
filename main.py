@@ -219,7 +219,7 @@ def query_campaign_hub_data(query_data: SQLQuery):
 
     if table_is_outdated:
         data = _fetch_campaign_data()
-        create_or_update_table(data)
+        sync_campaign_hub_db(data)
         
     with campaign_hub_session() as session:
         # Execute the user's query
@@ -246,27 +246,68 @@ def fetch_column_names_and_types():
 
 
 
-def create_or_update_table(data):
+def sync_campaign_hub_db(data):
     """
     Ensures the campaigns table exists and is upserted with the latest data.
+    Detects schema changes and adds/removes columns as needed.
     
     Params:
     data - the latest set of records fetched from the API. This is the source of truth from which the table is built.
     """
     engine = create_engine('sqlite:///campaigns.db')
-    
+    inspector = inspect(engine)
     metadata = MetaData()
 
-    # Create table
+    # Get columns from incoming data
     single_record = data[0]
-    column_names = [_key_to_column_name(key) for key in single_record.keys()]
-    columns = [Column(column_name, String, primary_key=True if column_name == "campaign_id" else False) for column_name in column_names]
     
-    # Add an updated_at column to keep track of when we updated the records
+    new_column_names = [_key_to_column_name(key) for key in single_record.keys()]
+    # Always include updated_at column
+    new_column_names.append("updated_at")
+    new_column_names_set = set(new_column_names)
+
+    # Check if table exists and get current columns
+    table_exists = inspector.has_table(ESPEN_CAMPAIGN_TABLE_NAME)
+    
+    if table_exists:
+        # Get existing columns
+        existing_columns = inspector.get_columns(ESPEN_CAMPAIGN_TABLE_NAME)
+        existing_column_names = {col['name'] for col in existing_columns}
+        
+        # Detect column differences
+        columns_to_add = new_column_names_set - existing_column_names
+        columns_to_remove = existing_column_names - new_column_names_set
+
+        # Add new columns
+        if columns_to_add:
+            logger.info(f"Adding new columns to {ESPEN_CAMPAIGN_TABLE_NAME}: {columns_to_add}")
+            with engine.begin() as conn:
+                for column_name in columns_to_add:
+                    if column_name == "updated_at":
+                        conn.execute(text(f"ALTER TABLE {ESPEN_CAMPAIGN_TABLE_NAME} ADD COLUMN {column_name} DATE"))
+                    else:
+                        conn.execute(text(f"ALTER TABLE {ESPEN_CAMPAIGN_TABLE_NAME} ADD COLUMN {column_name} TEXT"))
+        
+        # Remove obsolete columns
+        if columns_to_remove:
+            logger.info(f"Removing obsolete columns from {ESPEN_CAMPAIGN_TABLE_NAME}: {columns_to_remove}")
+            _drop_columns_from_table(engine, columns_to_remove)
+    else:
+        # Create table for the first time
+        logger.info(f"Creating new table {ESPEN_CAMPAIGN_TABLE_NAME}")
+        columns = [Column(column_name, String, primary_key=True if column_name == "campaign_id" else False) 
+                  for column_name in new_column_names if column_name != "updated_at"]
+        # Add updated_at column
+        columns.append(Column("updated_at", Date))
+        table = Table(ESPEN_CAMPAIGN_TABLE_NAME, metadata, *columns)
+        metadata.create_all(engine)
+
+    # Recreate the table object with current schema for upsert operations
+    metadata = MetaData()
+    columns = [Column(column_name, String, primary_key=True if column_name == "campaign_id" else False) 
+              for column_name in new_column_names if column_name != "updated_at"]
     columns.append(Column("updated_at", Date))
     table = Table(ESPEN_CAMPAIGN_TABLE_NAME, metadata, *columns, extend_existing=True)
-
-    metadata.create_all(engine, checkfirst=True)
 
     # Upsert the table with data
     campaigns_seen = []
@@ -295,6 +336,18 @@ def create_or_update_table(data):
 
 def _key_to_column_name(key: str) -> str:
     return key.lower().replace(" ", "_").replace("-", "_").replace("(", "").replace(")", "")
+
+
+def _drop_columns_from_table(engine, columns_to_remove):
+    """
+    Drops the specified columns from the table using ALTER TABLE DROP COLUMN.
+    """
+    with engine.begin() as conn:
+        for column_name in columns_to_remove:
+            drop_sql = f'ALTER TABLE {ESPEN_CAMPAIGN_TABLE_NAME} DROP COLUMN "{column_name}"'
+            conn.execute(text(drop_sql))
+            logger.info(f"Successfully dropped column '{column_name}' from {ESPEN_CAMPAIGN_TABLE_NAME}")
+
         
 
 def _fetch_campaign_data():
