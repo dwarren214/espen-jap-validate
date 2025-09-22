@@ -4,3 +4,5 @@ deploy/.kamal/secrets
 .idea
 .venv
 .DS_Store
+campaigns.db
+__pycache__/

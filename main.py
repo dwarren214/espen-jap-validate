@@ -2,19 +2,21 @@ import csv
 import io
 import logging
 import os
+import sqlite3
 import sys
 from pathlib import Path
 from typing import List, Optional
 import httpx
 from datetime import datetime
-
+from contextlib import contextmanager
 import orjson
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, text, Column, inspect, String, MetaData, Table, Date
+from sqlalchemy.dialects.sqlite import Insert
 from sqlalchemy.orm import sessionmaker
 
 from utils import quote_identifiers  # Import the helper function
@@ -56,6 +58,8 @@ if not API_KEY:
 ESPEN_CAMPAIGN_HUB_KEY = os.getenv("ESPEN_CAMPAIGN_HUB_KEY")
 if not ESPEN_CAMPAIGN_HUB_KEY:
     logger.warning("ESPEN_CAMPAIGN_HUB_KEY environment variable is not set. Campaign data may not be available.")
+
+ESPEN_CAMPAIGN_TABLE_NAME = "campaigns"
 
 security = HTTPBearer()
 
@@ -174,14 +178,126 @@ def fetch_column_names_and_types(table_data: TableNames):
     finally:
         meta_session.close()
 
+@contextmanager
+def campaign_hub_session():
+    """Provides a transactional scope around a series of operations."""
+    engine = create_engine('sqlite:///campaigns.db')
+    session = sessionmaker(bind=engine)()
 
-# Endpoint to fetch campaign data
-@app.get("/fetch_campaign_hub_data", dependencies=[Depends(api_key_auth)])
-def fetch_campaign_hub_data():
+    try:
+        yield session
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+@app.post("/query_campaign_hub_data", dependencies=[Depends(api_key_auth)])
+def query_campaign_hub_data(query_data: SQLQuery):
     """
-    Fetches campaign data from the ESPEN Campaign Hub API. The data is filtered to include only records
-    from the AFRO region with a campaign start year greater than last year.
+    Fetches campaign data from the ESPEN Campaign Hub API and stores it in a local SQLite database.
+    If the local database table does not exist or is outdated, it fetches fresh data from the API.
+    Then, it executes the user's SQL query against the local database and returns the results.
+
+    The API data is updated every night, so we check if the local data was updated today before deciding to fetch new
+    data.
     """
+    engine = create_engine('sqlite:///campaigns.db')
+    inspector = inspect(engine)
+    table_is_outdated = False
+    if not inspector.has_table(ESPEN_CAMPAIGN_TABLE_NAME):
+        logger.info(f"{ESPEN_CAMPAIGN_TABLE_NAME} table does not exist. Fetching data from API and creating table.")
+        table_is_outdated = True
+    else:
+        with campaign_hub_session() as session:
+            result = session.execute(text(f"SELECT updated_at FROM {ESPEN_CAMPAIGN_TABLE_NAME} LIMIT 1"))
+            row = result.fetchone()
+
+        if not row or row[0] != str(datetime.now().date()):
+            logger.info(f"{ESPEN_CAMPAIGN_TABLE_NAME} table is empty or not updated today. Fetching data from API.")
+            table_is_outdated = True
+
+    if table_is_outdated:
+        data = _fetch_campaign_data()
+        create_or_update_table(data)
+        
+    with campaign_hub_session() as session:
+        # Execute the user's query
+        result = session.execute(text(query_data.query))
+        rows = result.fetchall()
+
+    # Convert results to a list of dictionaries for JSON response
+    columns = result.keys()
+    result_data = [dict(zip(columns, row)) for row in rows]
+    
+    return {"data": result_data, "row_count": len(result_data)}
+
+@app.get("/fetch_campaign_hub_columns", dependencies=[Depends(api_key_auth)])
+def fetch_column_names_and_types():
+    results = {}
+    with campaign_hub_session() as session:
+        try:
+            query = text(f"PRAGMA table_info({ESPEN_CAMPAIGN_TABLE_NAME});")
+            results = session.execute(query).fetchall()
+            columns_names = [res[1] for res in results]
+            return columns_names
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+
+
+def create_or_update_table(data):
+    """
+    Ensures the campaigns table exists and is upserted with the latest data.
+    
+    Params:
+    data - the latest set of records fetched from the API. This is the source of truth from which the table is built.
+    """
+    engine = create_engine('sqlite:///campaigns.db')
+    
+    metadata = MetaData()
+
+    # Create table
+    single_record = data[0]
+    column_names = [_key_to_column_name(key) for key in single_record.keys()]
+    columns = [Column(column_name, String, primary_key=True if column_name == "campaign_id" else False) for column_name in column_names]
+    
+    # Add an updated_at column to keep track of when we updated the records
+    columns.append(Column("updated_at", Date))
+    table = Table(ESPEN_CAMPAIGN_TABLE_NAME, metadata, *columns, extend_existing=True)
+
+    metadata.create_all(engine, checkfirst=True)
+
+    # Upsert the table with data
+    campaigns_seen = []
+        
+    with campaign_hub_session() as session:
+        with session.begin():
+            for record in data:
+                # Convert keys to match column names
+                record = { _key_to_column_name(key): str(value) if value is not None else None for key, value in record.items()}
+                campaigns_seen.append(record["campaign_id"])
+                record["updated_at"] = datetime.now().date()
+                insert_stmt = Insert(table).values(**record)
+                upsert_stmt = insert_stmt.on_conflict_do_update(
+                    index_elements=['campaign_id'],
+                    set_=record
+                )
+                session.execute(upsert_stmt)
+
+            # Delete records not in the latest fetch
+            if campaigns_seen:
+                delete_stmt = table.delete().where(~table.c.campaign_id.in_(campaigns_seen))
+                session.execute(delete_stmt)
+            
+            session.commit()
+        
+
+def _key_to_column_name(key: str) -> str:
+    return key.lower().replace(" ", "_").replace("-", "_").replace("(", "").replace(")", "")
+        
+
+def _fetch_campaign_data():
     previous_year = datetime.now().year - 1
     headers = {"access_token": ESPEN_CAMPAIGN_HUB_KEY}
     response = httpx.get(url="https://lbdatabaseapi.azurewebsites.net/campaign_hub_download", headers=headers)
