@@ -48,6 +48,10 @@ accessories:
       secret:
         - POSTGRES_PASSWORD
 
+  directories:
+    - /campaign_dbs:/campaign_dbs
+    
+
 # See https://kamal-deploy.org/docs/configuration/proxy/ for config options
 proxy:
   ssl: true

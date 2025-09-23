@@ -179,9 +179,12 @@ def fetch_column_names_and_types(table_data: TableNames):
         meta_session.close()
 
 @contextmanager
-def campaign_hub_session():
+def campaign_hub_session(date=None):
     """Provides a transactional scope around a series of operations."""
-    engine = create_engine('sqlite:///campaigns.db')
+    if date is None:
+        date = datetime.now().date()
+    db_path = get_campaign_db_path(date)
+    engine = create_engine(f'sqlite:///{db_path}')
     session = sessionmaker(bind=engine)()
 
     try:
@@ -192,41 +195,39 @@ def campaign_hub_session():
     finally:
         session.close()
 
+def get_campaign_db_path(date):
+    if date is None:
+        date = datetime.now().date()
+    db_name = f'campaigns-{date}.db'
+    return BASE_PATH / "campaign_dbs" / db_name
+
 @app.post("/query_campaign_hub_data", dependencies=[Depends(api_key_auth)])
 def query_campaign_hub_data(query_data: SQLQuery):
     """
     Fetches campaign data from the ESPEN Campaign Hub API and stores it in a local SQLite database.
-    If the local database table does not exist or is outdated, it fetches fresh data from the API.
-    Then, it executes the user's SQL query against the local database and returns the results.
+    Uses date-specific database files (e.g., campaigns-2025-09-23.db) to ensure fresh data each day.
+    If today's database doesn't exist, it fetches fresh data from the API and creates a new database.
+    Then, it executes the user's SQL query against the database and returns the results.
 
-    The API data is updated every night, so we check if the local data was updated today before deciding to fetch new
-    data.
+    The API data is updated every night, so we create a new database file each day.
     """
-    engine = create_engine('sqlite:///campaigns.db')
-    inspector = inspect(engine)
-    table_is_outdated = False
-    if not inspector.has_table(ESPEN_CAMPAIGN_TABLE_NAME):
-        logger.info(f"{ESPEN_CAMPAIGN_TABLE_NAME} table does not exist. Fetching data from API and creating table.")
-        table_is_outdated = True
-    else:
-        with campaign_hub_session() as session:
-            result = session.execute(text(f"SELECT updated_at FROM {ESPEN_CAMPAIGN_TABLE_NAME} LIMIT 1"))
-            row = result.fetchone()
+    today = datetime.now().date()
+    db_path = get_campaign_db_path(today)
 
-        if not row or row[0] != str(datetime.now().date()):
-            logger.info(f"{ESPEN_CAMPAIGN_TABLE_NAME} table is empty or not updated today. Fetching data from API.")
-            table_is_outdated = True
-
-    if table_is_outdated:
-        data = _fetch_campaign_data()
-        sync_campaign_hub_db(data)
+    if not db_path.exists():
+        # Create today's database if it doesn't exist
+        logger.info(f"Database for {today} does not exist. Fetching data from API and creating new database.")
+        data = fetch_campaign_data()
         
-    with campaign_hub_session() as session:
-        # Execute the user's query
+        # Check again in case another process created it in the meantime
+        if not db_path.exists():
+            create_db_from_data(db_path, data)
+        
+    # Execute the user's query
+    with campaign_hub_session(today) as session:
         result = session.execute(text(query_data.query))
         rows = result.fetchall()
 
-    # Convert results to a list of dictionaries for JSON response
     columns = result.keys()
     result_data = [dict(zip(columns, row)) for row in rows]
     
@@ -234,8 +235,9 @@ def query_campaign_hub_data(query_data: SQLQuery):
 
 @app.get("/fetch_campaign_hub_columns", dependencies=[Depends(api_key_auth)])
 def fetch_column_names_and_types():
+    today = datetime.now().date()
     results = {}
-    with campaign_hub_session() as session:
+    with campaign_hub_session(today) as session:
         try:
             query = text(f"PRAGMA table_info({ESPEN_CAMPAIGN_TABLE_NAME});")
             results = session.execute(query).fetchall()
@@ -244,113 +246,47 @@ def fetch_column_names_and_types():
         except Exception as e:
             raise HTTPException(status_code=400, detail=str(e))
 
-
-
-def sync_campaign_hub_db(data):
+def create_db_from_data(db_path, data):
     """
-    Ensures the campaigns table exists and is upserted with the latest data.
-    Detects schema changes and adds/removes columns as needed.
+    Creates a new campaigns table with the latest data from the API.
+    Uses a date-specific database file for the given date.
     
     Params:
     data - the latest set of records fetched from the API. This is the source of truth from which the table is built.
+    date - the date for which to create the database (datetime.date object)
     """
-    engine = create_engine('sqlite:///campaigns.db')
-    inspector = inspect(engine)
+    engine = create_engine(f'sqlite:///{db_path}')
     metadata = MetaData()
 
-    # Get columns from incoming data
+    # Look at the first record to see what columns we have
     single_record = data[0]
-    
-    new_column_names = [_key_to_column_name(key) for key in single_record.keys()]
-    # Always include updated_at column
-    new_column_names.append("updated_at")
-    new_column_names_set = set(new_column_names)
+    column_names = [key_to_column_name(key) for key in single_record.keys()]
 
-    # Check if table exists and get current columns
-    table_exists = inspector.has_table(ESPEN_CAMPAIGN_TABLE_NAME)
-    
-    if table_exists:
-        # Get existing columns
-        existing_columns = inspector.get_columns(ESPEN_CAMPAIGN_TABLE_NAME)
-        existing_column_names = {col['name'] for col in existing_columns}
-        
-        # Detect column differences
-        columns_to_add = new_column_names_set - existing_column_names
-        columns_to_remove = existing_column_names - new_column_names_set
-
-        # Add new columns
-        if columns_to_add:
-            logger.info(f"Adding new columns to {ESPEN_CAMPAIGN_TABLE_NAME}: {columns_to_add}")
-            with engine.begin() as conn:
-                for column_name in columns_to_add:
-                    if column_name == "updated_at":
-                        conn.execute(text(f"ALTER TABLE {ESPEN_CAMPAIGN_TABLE_NAME} ADD COLUMN {column_name} DATE"))
-                    else:
-                        conn.execute(text(f"ALTER TABLE {ESPEN_CAMPAIGN_TABLE_NAME} ADD COLUMN {column_name} TEXT"))
-        
-        # Remove obsolete columns
-        if columns_to_remove:
-            logger.info(f"Removing obsolete columns from {ESPEN_CAMPAIGN_TABLE_NAME}: {columns_to_remove}")
-            _drop_columns_from_table(engine, columns_to_remove)
-    else:
-        # Create table for the first time
-        logger.info(f"Creating new table {ESPEN_CAMPAIGN_TABLE_NAME}")
-        columns = [Column(column_name, String, primary_key=True if column_name == "campaign_id" else False) 
-                  for column_name in new_column_names if column_name != "updated_at"]
-        # Add updated_at column
-        columns.append(Column("updated_at", Date))
-        table = Table(ESPEN_CAMPAIGN_TABLE_NAME, metadata, *columns)
-        metadata.create_all(engine)
-
-    # Recreate the table object with current schema for upsert operations
-    metadata = MetaData()
+    # Create table
+    logger.info(f"Creating new table {ESPEN_CAMPAIGN_TABLE_NAME} in {db_path}")
     columns = [Column(column_name, String, primary_key=True if column_name == "campaign_id" else False) 
-              for column_name in new_column_names if column_name != "updated_at"]
-    columns.append(Column("updated_at", Date))
-    table = Table(ESPEN_CAMPAIGN_TABLE_NAME, metadata, *columns, extend_existing=True)
+              for column_name in column_names]
 
-    # Upsert the table with data
-    campaigns_seen = []
-        
-    with campaign_hub_session() as session:
+    table = Table(ESPEN_CAMPAIGN_TABLE_NAME, metadata, *columns)
+    metadata.create_all(engine)
+
+    # Insert the data
+    today = datetime.now().date()
+    with campaign_hub_session(today) as session:
         with session.begin():
             for record in data:
-                # Convert keys to match column names
-                record = { _key_to_column_name(key): str(value) if value is not None else None for key, value in record.items()}
-                campaigns_seen.append(record["campaign_id"])
-                record["updated_at"] = datetime.now().date()
+                record = { key_to_column_name(key): str(value) if value is not None else None for key, value in record.items()}
                 insert_stmt = Insert(table).values(**record)
-                upsert_stmt = insert_stmt.on_conflict_do_update(
-                    index_elements=['campaign_id'],
-                    set_=record
-                )
-                session.execute(upsert_stmt)
-
-            # Delete records not in the latest fetch
-            if campaigns_seen:
-                delete_stmt = table.delete().where(~table.c.campaign_id.in_(campaigns_seen))
-                session.execute(delete_stmt)
+                session.execute(insert_stmt)
             
             session.commit()
         
 
-def _key_to_column_name(key: str) -> str:
+def key_to_column_name(key: str) -> str:
     return key.lower().replace(" ", "_").replace("-", "_").replace("(", "").replace(")", "")
 
 
-def _drop_columns_from_table(engine, columns_to_remove):
-    """
-    Drops the specified columns from the table using ALTER TABLE DROP COLUMN.
-    """
-    with engine.begin() as conn:
-        for column_name in columns_to_remove:
-            drop_sql = f'ALTER TABLE {ESPEN_CAMPAIGN_TABLE_NAME} DROP COLUMN "{column_name}"'
-            conn.execute(text(drop_sql))
-            logger.info(f"Successfully dropped column '{column_name}' from {ESPEN_CAMPAIGN_TABLE_NAME}")
-
-        
-
-def _fetch_campaign_data():
+def fetch_campaign_data():
     previous_year = datetime.now().year - 1
     headers = {"access_token": ESPEN_CAMPAIGN_HUB_KEY}
     response = httpx.get(url="https://lbdatabaseapi.azurewebsites.net/campaign_hub_download", headers=headers)
@@ -359,7 +295,8 @@ def _fetch_campaign_data():
         records = response.json()
         final_response = []
         for record in records:
-            # record.get("Campaign Start Year", 0) or 0) ensures we handle None values
+            
+            # Pre-filtering to only insert data we care about
             if record.get("WHO Region") == "AFRO" and (record.get("Campaign Start Year", 0) or 0) > previous_year:
                 cleaned_data = record | {"Diseases Targeted": record.get("Diseases Targeted", "unspecified")}
                 cleaned_data.pop("PCCS Coverage", None)
