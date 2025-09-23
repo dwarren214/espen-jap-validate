@@ -211,6 +211,35 @@ def query_campaign_hub_data(query_data: SQLQuery):
 
     The API data is updated every night, so we create a new database file each day.
     """
+
+    today = datetime.now().date()
+    ensure_campaigns_db_exists()
+    # Execute the user's query
+    with campaign_hub_session(today) as session:
+        result = session.execute(text(query_data.query))
+        rows = result.fetchall()
+
+    columns = result.keys()
+    result_data = [dict(zip(columns, row)) for row in rows]
+    
+    return {"data": result_data, "row_count": len(result_data)}
+
+@app.get("/fetch_campaign_hub_columns", dependencies=[Depends(api_key_auth)])
+def fetch_column_names_and_types():
+    ensure_campaigns_db_exists()
+
+    today = datetime.now().date()
+    results = {}
+    with campaign_hub_session(today) as session:
+        try:
+            query = text(f"PRAGMA table_info({ESPEN_CAMPAIGN_TABLE_NAME});")
+            results = session.execute(query).fetchall()
+            columns_names = [res[1] for res in results]
+            return columns_names
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+def ensure_campaigns_db_exists():
     today = datetime.now().date()
     db_path = get_campaign_db_path(today)
 
@@ -224,29 +253,6 @@ def query_campaign_hub_data(query_data: SQLQuery):
             create_db_from_data(db_path, data)
             # Piggy back on this call to do some cleanup
             remove_old_dbs()
-        
-    # Execute the user's query
-    with campaign_hub_session(today) as session:
-        result = session.execute(text(query_data.query))
-        rows = result.fetchall()
-
-    columns = result.keys()
-    result_data = [dict(zip(columns, row)) for row in rows]
-    
-    return {"data": result_data, "row_count": len(result_data)}
-
-@app.get("/fetch_campaign_hub_columns", dependencies=[Depends(api_key_auth)])
-def fetch_column_names_and_types():
-    today = datetime.now().date()
-    results = {}
-    with campaign_hub_session(today) as session:
-        try:
-            query = text(f"PRAGMA table_info({ESPEN_CAMPAIGN_TABLE_NAME});")
-            results = session.execute(query).fetchall()
-            columns_names = [res[1] for res in results]
-            return columns_names
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=str(e))
 
 def create_db_from_data(db_path, data):
     """
