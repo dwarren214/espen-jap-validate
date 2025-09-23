@@ -225,7 +225,7 @@ def query_campaign_hub_data(query_data: SQLQuery):
     return {"data": result_data, "row_count": len(result_data)}
 
 @app.get("/fetch_campaign_hub_columns", dependencies=[Depends(api_key_auth)])
-def fetch_column_names_and_types():
+def fetch_campaign_hub_columns():
     ensure_campaigns_db_exists()
 
     today = datetime.now().date()
