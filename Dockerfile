@@ -43,8 +43,8 @@ RUN --mount=type=cache,target=/root/.cache \
 ENV PYTHONUNBUFFERED=1
 ENV DEBUG=0
 
-RUN addgroup --system fastapi \
-    && adduser --system --ingroup fastapi fastapi
+RUN addgroup --system --gid 1001 fastapi \
+    && adduser --system --uid 1001 --ingroup fastapi fastapi
 
 WORKDIR /code
 COPY --chown=fastapi:fastapi main.py utils.py espen.db /code

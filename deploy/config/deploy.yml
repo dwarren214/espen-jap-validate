@@ -16,6 +16,9 @@ servers:
     options:
       expose: "8000"
 
+volumes:
+  - "/home/ocs/campaign_dbs:/code/campaign_dbs"
+
 # To use a non-root user see https://kamal-deploy.org/docs/configuration/ssh/#the-ssh-user
 ssh:
   user: ocs
@@ -47,10 +50,7 @@ accessories:
         POSTGRES_DB: espen
       secret:
         - POSTGRES_PASSWORD
-
-  directories:
-    - /campaign_dbs:/campaign_dbs
-    
+   
 
 # See https://kamal-deploy.org/docs/configuration/proxy/ for config options
 proxy:
