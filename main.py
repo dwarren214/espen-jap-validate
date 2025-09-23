@@ -2,19 +2,21 @@ import csv
 import io
 import logging
 import os
+import sqlite3
 import sys
 from pathlib import Path
 from typing import List, Optional
 import httpx
 from datetime import datetime
-
+from contextlib import contextmanager
 import orjson
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, text, Column, inspect, String, MetaData, Table, Date
+from sqlalchemy.dialects.sqlite import Insert
 from sqlalchemy.orm import sessionmaker
 
 from utils import quote_identifiers  # Import the helper function
@@ -56,6 +58,8 @@ if not API_KEY:
 ESPEN_CAMPAIGN_HUB_KEY = os.getenv("ESPEN_CAMPAIGN_HUB_KEY")
 if not ESPEN_CAMPAIGN_HUB_KEY:
     logger.warning("ESPEN_CAMPAIGN_HUB_KEY environment variable is not set. Campaign data may not be available.")
+
+ESPEN_CAMPAIGN_TABLE_NAME = "campaigns"
 
 security = HTTPBearer()
 
@@ -174,8 +178,165 @@ def fetch_column_names_and_types(table_data: TableNames):
     finally:
         meta_session.close()
 
+@contextmanager
+def campaign_hub_session(date=None):
+    """Provides a transactional scope around a series of operations."""
+    if date is None:
+        date = datetime.now().date()
+    db_path = get_campaign_db_path(date)
+    engine = create_engine(f'sqlite:///{db_path}')
+    session = sessionmaker(bind=engine)()
 
-# Endpoint to fetch campaign data
+    try:
+        yield session
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+def get_campaign_db_path(date):
+    if date is None:
+        date = datetime.now().date()
+    db_name = f'campaigns-{date}.db'
+    return BASE_PATH / "campaign_dbs" / db_name
+
+@app.post("/query_campaign_hub_data", dependencies=[Depends(api_key_auth)])
+def query_campaign_hub_data(query_data: SQLQuery):
+    """
+    Fetches campaign data from the ESPEN Campaign Hub API and stores it in a local SQLite database.
+    Uses date-specific database files (e.g., campaigns-2025-09-23.db) to ensure fresh data each day.
+    If today's database doesn't exist, it fetches fresh data from the API and creates a new database.
+    Then, it executes the user's SQL query against the database and returns the results.
+
+    The API data is updated every night, so we create a new database file each day.
+    """
+
+    today = datetime.now().date()
+    ensure_campaigns_db_exists()
+    # Execute the user's query
+    with campaign_hub_session(today) as session:
+        result = session.execute(text(query_data.query))
+        rows = result.fetchall()
+
+    columns = result.keys()
+    result_data = [dict(zip(columns, row)) for row in rows]
+    
+    return {"data": result_data, "row_count": len(result_data)}
+
+@app.get("/fetch_campaign_hub_columns", dependencies=[Depends(api_key_auth)])
+def fetch_column_names_and_types():
+    ensure_campaigns_db_exists()
+
+    today = datetime.now().date()
+    results = {}
+    with campaign_hub_session(today) as session:
+        try:
+            query = text(f"PRAGMA table_info({ESPEN_CAMPAIGN_TABLE_NAME});")
+            results = session.execute(query).fetchall()
+            columns_names = [res[1] for res in results]
+            return columns_names
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+def ensure_campaigns_db_exists():
+    today = datetime.now().date()
+    db_path = get_campaign_db_path(today)
+
+    if not db_path.exists():
+        # Create today's database if it doesn't exist
+        logger.info(f"Database for {today} does not exist. Fetching data from API and creating new database.")
+        data = fetch_campaign_data()
+        
+        # Check again in case another process created it in the meantime
+        if not db_path.exists():
+            create_db_from_data(db_path, data)
+            # Piggy back on this call to do some cleanup
+            remove_old_dbs()
+
+def create_db_from_data(db_path, data):
+    """
+    Creates a new campaigns table with the latest data from the API.
+    Uses a date-specific database file for the given date.
+    
+    Params:
+    data - the latest set of records fetched from the API. This is the source of truth from which the table is built.
+    date - the date for which to create the database (datetime.date object)
+    """
+    engine = create_engine(f'sqlite:///{db_path}')
+    metadata = MetaData()
+
+    # Look at the first record to see what columns we have
+    single_record = data[0]
+    column_names = [key_to_column_name(key) for key in single_record.keys()]
+
+    # Create table
+    logger.info(f"Creating new table {ESPEN_CAMPAIGN_TABLE_NAME} in {db_path}")
+    columns = [Column(column_name, String, primary_key=True if column_name == "campaign_id" else False) 
+              for column_name in column_names]
+
+    table = Table(ESPEN_CAMPAIGN_TABLE_NAME, metadata, *columns)
+    metadata.create_all(engine)
+
+    # Insert the data
+    today = datetime.now().date()
+    with campaign_hub_session(today) as session:
+        with session.begin():
+            for record in data:
+                record = { key_to_column_name(key): str(value) if value is not None else None for key, value in record.items()}
+                insert_stmt = Insert(table).values(**record)
+                session.execute(insert_stmt)
+            
+            session.commit()
+        
+
+def key_to_column_name(key: str) -> str:
+    return key.lower().replace(" ", "_").replace("-", "_").replace("(", "").replace(")", "")
+
+
+def fetch_campaign_data():
+    previous_year = datetime.now().year - 1
+    headers = {"access_token": ESPEN_CAMPAIGN_HUB_KEY}
+    response = httpx.get(url="https://lbdatabaseapi.azurewebsites.net/campaign_hub_download", headers=headers)
+
+    if response.status_code == 200:
+        records = response.json()
+        final_response = []
+        for record in records:
+            
+            # Pre-filtering to only insert data we care about
+            if record.get("WHO Region") == "AFRO" and (record.get("Campaign Start Year", 0) or 0) > previous_year:
+                cleaned_data = record | {"Diseases Targeted": record.get("Diseases Targeted", "unspecified")}
+                cleaned_data.pop("PCCS Coverage", None)
+                cleaned_data.pop("Geographic Coverage", None)
+                cleaned_data.pop("Therapeutic Coverage", None)
+                cleaned_data.pop("Administrative Coverage", None)
+                final_response.append(cleaned_data)
+
+        return final_response
+    else:
+        raise HTTPException(status_code=response.status_code, detail=response.text)
+
+def remove_old_dbs():
+    """Removes old campaign database files, keeping only the last 2 days."""
+    db_dir = BASE_PATH / "campaign_dbs"
+    if not db_dir.exists():
+        return
+
+    today = datetime.now().date()
+    for db_file in db_dir.glob("campaigns-*.db"):
+        try:
+            # campaigns-2025-09-23.db -> ['2025', '09', '23']
+            date_str = db_file.stem.split("-")[1:]
+            db_date = datetime.strptime("-".join(date_str), "%Y-%m-%d").date()
+            if (today - db_date).days > 2:
+                logger.info(f"Removing old database file: {db_file}")
+                db_file.unlink()
+        except Exception as e:
+            logger.exception("Unable to remove db file %s: %s", db_file, e)
+
+
+# This endpoint is a legacy one and will be removed once the OCS bot uses the endpoints above
 @app.get("/fetch_campaign_hub_data", dependencies=[Depends(api_key_auth)])
 def fetch_campaign_hub_data():
     """
@@ -183,7 +344,7 @@ def fetch_campaign_hub_data():
     from the AFRO region with a campaign start year greater than last year.
     """
     previous_year = datetime.now().year - 1
-    headers = {"access_token": ESPEN_CAMPAIGN_HUB_KEY}
+    headers = {"access_token": os.getenv("ESPEN_CAMPAIGN_HUB_KEY")}
     response = httpx.get(url="https://lbdatabaseapi.azurewebsites.net/campaign_hub_download", headers=headers)
 
     if response.status_code == 200:
