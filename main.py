@@ -334,3 +334,32 @@ def remove_old_dbs():
                 db_file.unlink()
         except Exception as e:
             logger.exception("Unable to remove db file %s: %s", db_file, e)
+
+
+# This endpoint is a legacy one and will be removed once the OCS bot uses the endpoints above
+@app.get("/fetch_campaign_hub_data", dependencies=[Depends(api_key_auth)])
+def fetch_campaign_hub_data():
+    """
+    Fetches campaign data from the ESPEN Campaign Hub API. The data is filtered to include only records
+    from the AFRO region with a campaign start year greater than last year.
+    """
+    previous_year = datetime.now().year - 1
+    headers = {"access_token": os.getenv("ESPEN_CAMPAIGN_HUB_KEY")}
+    response = httpx.get(url="https://lbdatabaseapi.azurewebsites.net/campaign_hub_download", headers=headers)
+
+    if response.status_code == 200:
+        records = response.json()
+        final_response = []
+        for record in records:
+            # record.get("Campaign Start Year", 0) or 0) ensures we handle None values
+            if record.get("WHO Region") == "AFRO" and (record.get("Campaign Start Year", 0) or 0) > previous_year:
+                cleaned_data = record | {"Diseases Targeted": record.get("Diseases Targeted", "unspecified")}
+                cleaned_data.pop("PCCS Coverage", None)
+                cleaned_data.pop("Geographic Coverage", None)
+                cleaned_data.pop("Therapeutic Coverage", None)
+                cleaned_data.pop("Administrative Coverage", None)
+                final_response.append(cleaned_data)
+
+        return final_response
+    else:
+        raise HTTPException(status_code=response.status_code, detail=response.text)
