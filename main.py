@@ -222,6 +222,8 @@ def query_campaign_hub_data(query_data: SQLQuery):
         # Check again in case another process created it in the meantime
         if not db_path.exists():
             create_db_from_data(db_path, data)
+            # Piggy back on this call to do some cleanup
+            remove_old_dbs()
         
     # Execute the user's query
     with campaign_hub_session(today) as session:
@@ -308,3 +310,21 @@ def fetch_campaign_data():
         return final_response
     else:
         raise HTTPException(status_code=response.status_code, detail=response.text)
+
+def remove_old_dbs():
+    """Removes old campaign database files, keeping only the last 2 days."""
+    db_dir = BASE_PATH / "campaign_dbs"
+    if not db_dir.exists():
+        return
+
+    today = datetime.now().date()
+    for db_file in db_dir.glob("campaigns-*.db"):
+        try:
+            # campaigns-2025-09-23.db -> ['2025', '09', '23']
+            date_str = db_file.stem.split("-")[1:]
+            db_date = datetime.strptime("-".join(date_str), "%Y-%m-%d").date()
+            if (today - db_date).days > 2:
+                logger.info(f"Removing old database file: {db_file}")
+                db_file.unlink()
+        except Exception as e:
+            logger.exception("Unable to remove db file %s: %s", db_file, e)
