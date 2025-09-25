@@ -2,11 +2,9 @@ import csv
 import io
 import logging
 import os
-import sqlite3
 import sys
 from pathlib import Path
-from typing import List, Optional
-import httpx
+from typing import List, Literal, Optional
 from datetime import datetime
 from contextlib import contextmanager
 import orjson
@@ -14,7 +12,7 @@ from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel
+from pydantic import BaseModel, validator
 from sqlalchemy import create_engine, text, Column, inspect, String, MetaData, Table, Date
 from sqlalchemy.dialects.sqlite import Insert
 from sqlalchemy.orm import sessionmaker
@@ -36,15 +34,12 @@ app = FastAPI()
 
 # Database configuration
 DATABASE_URL = os.getenv("DATABASE_URL")
-
-# Adjust for Heroku Postgres URL scheme
-IS_POSTGRES = "postgres" in DATABASE_URL and "mssql" not in DATABASE_URL
-if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
-    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
-
-# Create SQLAlchemy engine and session
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(bind=engine)
+
+REMOTE_DATABASE_URL = os.getenv("REMOTE_DATABASE_URL")
+remote_engine = create_engine(REMOTE_DATABASE_URL)
+RemoteSessionLocal = sessionmaker(bind=remote_engine)
 
 meta_db_path = BASE_PATH / "espen.db"
 meta_engine = create_engine("sqlite:///" + str(meta_db_path))
@@ -96,10 +91,10 @@ def status():
 # Endpoint to execute SQL queries
 @app.post("/execute_sql_query", dependencies=[Depends(api_key_auth)])
 def execute_sql_query(query_data: SQLQuery):
-    session = SessionLocal()
+    session = RemoteSessionLocal()
     try:
         # Automatically quote identifiers in the query
-        quoted_query = quote_identifiers(query_data.query, IS_POSTGRES)
+        quoted_query = quote_identifiers(query_data.query, is_postgres=False)
 
         # Execute the quoted query with parameters
         result = session.execute(text(quoted_query))
@@ -363,7 +358,6 @@ def fetch_campaign_hub_data():
         return final_response
     else:
         raise HTTPException(status_code=response.status_code, detail=response.text)
-
 
 
 class Top3Request(BaseModel):
