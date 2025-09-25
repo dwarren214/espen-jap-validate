@@ -652,3 +652,23 @@ def oncho_top3(request: Top3Request):
         raise HTTPException(status_code=400, detail=str(exc))
     finally:
         session.close()
+
+
+@app.post("/oncho/execute_query", dependencies=[Depends(api_key_auth)])
+def oncho_execute_query(query_data: SQLQuery):
+    session = SessionLocal()
+    try:
+        # Automatically quote identifiers in the query for PostgreSQL
+        quoted_query = quote_identifiers(query_data.query, is_postgres=True)
+
+        result = session.execute(text(quoted_query))
+        rows = result.fetchall()
+        column_names = list(result.keys())
+
+        result_list = [dict(zip(column_names, row)) for row in rows]
+        return result_list
+
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        session.close()
