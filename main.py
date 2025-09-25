@@ -8,14 +8,25 @@ from typing import List, Literal, Optional
 from datetime import datetime
 from contextlib import contextmanager
 import orjson
+import httpx
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, validator
-from sqlalchemy import create_engine, text, Column, inspect, String, MetaData, Table, Date
+from sqlalchemy import (
+    bindparam,
+    create_engine,
+    text,
+    Column,
+    inspect,
+    String,
+    MetaData,
+    Table,
+    Date,
+)
 from sqlalchemy.dialects.sqlite import Insert
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import Session, sessionmaker
 
 from utils import quote_identifiers  # Import the helper function
 
