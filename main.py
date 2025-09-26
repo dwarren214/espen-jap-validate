@@ -423,7 +423,7 @@ def build_top3_query(location_column: str):
                 iu_id,
                 iu_name,
                 year,
-                p50,
+                percentile_50 AS p50,
                 fitz_cost AS cost
             FROM oncho_projection
             WHERE year BETWEEN :start_year AND :end_year
