@@ -220,15 +220,18 @@ def query_campaign_hub_data(query_data: SQLQuery):
 
     today = datetime.now().date()
     ensure_campaigns_db_exists()
-    # Execute the user's query
-    with campaign_hub_session(today) as session:
-        result = session.execute(text(query_data.query))
-        rows = result.fetchall()
+    try:
+        # Execute the user's query
+        with campaign_hub_session(today) as session:
+            result = session.execute(text(query_data.query))
+            rows = result.fetchall()
 
-    columns = result.keys()
-    result_data = [dict(zip(columns, row)) for row in rows]
-    
-    return {"data": result_data, "row_count": len(result_data)}
+        columns = result.keys()
+        result_data = [dict(zip(columns, row)) for row in rows]
+        
+        return {"data": result_data, "row_count": len(result_data)}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 @app.get("/fetch_campaign_hub_columns", dependencies=[Depends(api_key_auth)])
 def fetch_campaign_hub_columns():
