@@ -21,9 +21,10 @@ from sqlalchemy import (
     Column,
     inspect,
     String,
+    Integer,
+    Float,
     MetaData,
     Table,
-    Date,
 )
 from sqlalchemy.dialects.sqlite import Insert
 from sqlalchemy.orm import Session, sessionmaker
@@ -277,12 +278,12 @@ def create_db_from_data(db_path, data):
 
     # Look at the first record to see what columns we have
     single_record = data[0]
-    column_names = [key_to_column_name(key) for key in single_record.keys()]
+    column_info = [get_column_name_and_type(key, value) for key, value in single_record.items()]
 
     # Create table
     logger.info(f"Creating new table {ESPEN_CAMPAIGN_TABLE_NAME} in {db_path}")
-    columns = [Column(column_name, String, primary_key=True if column_name == "campaign_id" else False) 
-              for column_name in column_names]
+    columns = [Column(column_name, column_type, primary_key=True if column_name == "campaign_id" else False) 
+              for column_name, column_type in column_info]
 
     table = Table(ESPEN_CAMPAIGN_TABLE_NAME, metadata, *columns)
     metadata.create_all(engine)
@@ -292,7 +293,7 @@ def create_db_from_data(db_path, data):
     with campaign_hub_session(today) as session:
         with session.begin():
             for record in data:
-                record = { key_to_column_name(key): str(value) if value is not None else None for key, value in record.items()}
+                record = { key_to_column_name(key): value if value is not None else None for key, value in record.items()}
                 insert_stmt = Insert(table).values(**record)
                 session.execute(insert_stmt)
             
@@ -301,6 +302,14 @@ def create_db_from_data(db_path, data):
 
 def key_to_column_name(key: str) -> str:
     return key.lower().replace(" ", "_").replace("-", "_").replace("(", "").replace(")", "")
+
+def get_column_name_and_type(key: str, value: any) -> tuple[str, String | Integer | Float]:
+    column_type = String
+    if isinstance(value, int):
+        column_type = Integer
+    elif isinstance(value, float):
+        column_type = Float
+    return key_to_column_name(key), column_type
 
 
 def fetch_campaign_data():
