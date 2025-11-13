@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel, validator
+from pydantic import BaseModel, field_validator, FieldValidationInfo
 from sqlalchemy import (
     bindparam,
     create_engine,
@@ -30,6 +30,11 @@ from sqlalchemy.dialects.sqlite import Insert
 from sqlalchemy.orm import Session, sessionmaker
 
 from utils import quote_identifiers  # Import the helper function
+from response_guard import (
+    GuardrailThresholds,
+    estimate_result_size,
+    build_guardrail_payload,
+)
 
 BASE_PATH = Path(__file__).resolve(strict=True).parent
 load_dotenv()
@@ -56,6 +61,17 @@ RemoteSessionLocal = sessionmaker(bind=remote_engine)
 meta_db_path = BASE_PATH / "espen.db"
 meta_engine = create_engine("sqlite:///" + str(meta_db_path))
 MetaSessionLocal = sessionmaker(bind=meta_engine)
+
+# Guardrail configuration
+MAX_RETURNED_ROWS = int(os.getenv("MAX_RETURNED_ROWS", "5000"))
+MAX_RETURNED_BYTES = int(os.getenv("MAX_RETURNED_BYTES", "400000"))
+PREVIEW_ROW_COUNT = int(os.getenv("PREVIEW_ROW_COUNT", "50"))
+
+guardrail_thresholds = GuardrailThresholds(
+    max_rows=MAX_RETURNED_ROWS,
+    max_bytes=MAX_RETURNED_BYTES,
+    preview_rows=PREVIEW_ROW_COUNT,
+)
 
 # API Key configuration
 API_KEY = os.getenv("API_KEY")  # Set this in your environment variables
@@ -89,6 +105,8 @@ class SQLQuery(BaseModel):
     query: str
     force_json: Optional[bool] = False  # Optional parameter to force JSON response
     force_csv: Optional[bool] = False  # Optional parameter to force CSV response
+    max_rows_requested: Optional[int] = None
+    preview_rows: Optional[int] = None
 
 
 class TableNames(BaseModel):
@@ -112,6 +130,33 @@ def execute_sql_query(query_data: SQLQuery):
         result = session.execute(text(quoted_query))
         rows = result.fetchall()
         column_names = list(result.keys())
+
+        stats = estimate_result_size(rows, guardrail_thresholds)
+        logger.info(
+            "sql_query_stats|endpoint=execute_sql_query|rows=%s|cols=%s|bytes=%s|over_cap=%s",
+            stats.row_count,
+            stats.column_count,
+            stats.bytes_estimate,
+            stats.requires_guardrail,
+        )
+
+        should_guard = stats.requires_guardrail
+        if (
+            query_data.max_rows_requested is not None
+            and stats.row_count > query_data.max_rows_requested
+        ):
+            should_guard = True
+
+        if should_guard:
+            preview_override = query_data.preview_rows
+            return build_guardrail_payload(
+                rows,
+                column_names,
+                stats,
+                guardrail_thresholds,
+                preview_rows_override=preview_override,
+                requested_max_rows=query_data.max_rows_requested,
+            )
 
         # Calculate result size
         num_rows = len(rows)
@@ -229,7 +274,27 @@ def query_campaign_hub_data(query_data: SQLQuery):
 
         columns = result.keys()
         result_data = [dict(zip(columns, row)) for row in rows]
-        
+
+        stats = estimate_result_size(rows, guardrail_thresholds)
+        logger.info(
+            "sql_query_stats|endpoint=query_campaign_hub_data|rows=%s|cols=%s|bytes=%s|over_cap=%s",
+            stats.row_count,
+            len(columns),
+            stats.bytes_estimate,
+            stats.requires_guardrail,
+        )
+
+        if stats.requires_guardrail:
+            preview_override = query_data.preview_rows
+            return build_guardrail_payload(
+                rows,
+                columns,
+                stats,
+                guardrail_thresholds,
+                preview_rows_override=preview_override,
+                requested_max_rows=query_data.max_rows_requested,
+            )
+
         return {"data": result_data, "row_count": len(result_data)}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -390,20 +455,23 @@ class Top3Request(BaseModel):
     end_year: int
     threshold: float = 0.01
 
-    @validator("location_values")
+    @field_validator("location_values")
+    @classmethod
     def validate_location_values(cls, value: List[str]) -> List[str]:
         if not value:
             raise ValueError("location_values must contain at least one value.")
         return value
 
-    @validator("end_year")
-    def validate_year_range(cls, end_year: int, values) -> int:
-        start_year = values.get("start_year")
+    @field_validator("end_year")
+    @classmethod
+    def validate_year_range(cls, end_year: int, info: FieldValidationInfo) -> int:
+        start_year = info.data.get("start_year") if info.data else None
         if start_year is not None and end_year < start_year:
             raise ValueError("end_year must be greater than or equal to start_year.")
         return end_year
 
-    @validator("threshold")
+    @field_validator("threshold")
+    @classmethod
     def validate_threshold(cls, threshold: float) -> float:
         if threshold <= 0:
             raise ValueError("threshold must be a positive number.")
@@ -676,6 +744,26 @@ def oncho_execute_query(query_data: SQLQuery):
         result = session.execute(text(quoted_query))
         rows = result.fetchall()
         column_names = list(result.keys())
+
+        stats = estimate_result_size(rows, guardrail_thresholds)
+        logger.info(
+            "sql_query_stats|endpoint=oncho_execute_query|rows=%s|cols=%s|bytes=%s|over_cap=%s",
+            stats.row_count,
+            stats.column_count,
+            stats.bytes_estimate,
+            stats.requires_guardrail,
+        )
+
+        if stats.requires_guardrail:
+            preview_override = query_data.preview_rows
+            return build_guardrail_payload(
+                rows,
+                column_names,
+                stats,
+                guardrail_thresholds,
+                preview_rows_override=preview_override,
+                requested_max_rows=query_data.max_rows_requested,
+            )
 
         result_list = [dict(zip(column_names, row)) for row in rows]
         return result_list
