@@ -16,3 +16,4 @@ tests_local/
 .coverage
 .coverage.*
 .vscode/
+docs/

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass
 from typing import Iterable, Sequence, List, Dict, Optional
 
@@ -66,18 +67,11 @@ def estimate_result_size(
 
 
 def _estimate_bytes(rows: Sequence[Sequence[object]]) -> int:
-    total = 0
+    total = sys.getsizeof(rows)
     for row in rows:
+        total += sys.getsizeof(row)
         for value in row:
-            if value is None:
-                total += 4  # allow room for "null"
-            elif isinstance(value, (int, float)):
-                total += len(str(value))
-            else:
-                text = str(value)
-                total += len(text.encode("utf-8", "ignore"))
-        # comma + newline separators
-        total += 2
+            total += sys.getsizeof(value)
     return total
 
 
@@ -97,11 +91,8 @@ def build_guardrail_payload(
     column_names: Sequence[str],
     stats: QueryResultStats,
     thresholds: GuardrailThresholds,
-    preview_rows_override: Optional[int] = None,
-    requested_max_rows: Optional[int] = None,
 ) -> Dict[str, object]:
-    preview_rows = preview_rows_override or thresholds.preview_rows
-    preview = slice_preview(rows, preview_rows)
+    preview = slice_preview(rows, thresholds.preview_rows)
     preview_dicts = [dict(zip(column_names, row)) for row in preview]
 
     payload: Dict[str, object] = {
@@ -111,10 +102,6 @@ def build_guardrail_payload(
         "bytes_estimate": stats.bytes_estimate,
         "preview_row_count": len(preview_dicts),
         "preview": preview_dicts,
-        "suggested_filters": ["country", "disease", "year"],
     }
-
-    if requested_max_rows is not None:
-        payload["max_rows_requested"] = requested_max_rows
 
     return payload

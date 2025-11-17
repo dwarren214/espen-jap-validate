@@ -105,8 +105,6 @@ class SQLQuery(BaseModel):
     query: str
     force_json: Optional[bool] = False  # Optional parameter to force JSON response
     force_csv: Optional[bool] = False  # Optional parameter to force CSV response
-    max_rows_requested: Optional[int] = None
-    preview_rows: Optional[int] = None
 
 
 class TableNames(BaseModel):
@@ -140,22 +138,12 @@ def execute_sql_query(query_data: SQLQuery):
             stats.requires_guardrail,
         )
 
-        should_guard = stats.requires_guardrail
-        if (
-            query_data.max_rows_requested is not None
-            and stats.row_count > query_data.max_rows_requested
-        ):
-            should_guard = True
-
-        if should_guard:
-            preview_override = query_data.preview_rows
+        if stats.requires_guardrail:
             return build_guardrail_payload(
                 rows,
                 column_names,
                 stats,
                 guardrail_thresholds,
-                preview_rows_override=preview_override,
-                requested_max_rows=query_data.max_rows_requested,
             )
 
         # Calculate result size
@@ -285,14 +273,11 @@ def query_campaign_hub_data(query_data: SQLQuery):
         )
 
         if stats.requires_guardrail:
-            preview_override = query_data.preview_rows
             return build_guardrail_payload(
                 rows,
                 columns,
                 stats,
                 guardrail_thresholds,
-                preview_rows_override=preview_override,
-                requested_max_rows=query_data.max_rows_requested,
             )
 
         return {"data": result_data, "row_count": len(result_data)}
@@ -755,14 +740,11 @@ def oncho_execute_query(query_data: SQLQuery):
         )
 
         if stats.requires_guardrail:
-            preview_override = query_data.preview_rows
             return build_guardrail_payload(
                 rows,
                 column_names,
                 stats,
                 guardrail_thresholds,
-                preview_rows_override=preview_override,
-                requested_max_rows=query_data.max_rows_requested,
             )
 
         result_list = [dict(zip(column_names, row)) for row in rows]
