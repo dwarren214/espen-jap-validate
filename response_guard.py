@@ -67,12 +67,7 @@ def estimate_result_size(
 
 
 def _estimate_bytes(rows: Sequence[Sequence[object]]) -> int:
-    total = sys.getsizeof(rows)
-    for row in rows:
-        total += sys.getsizeof(row)
-        for value in row:
-            total += sys.getsizeof(value)
-    return total
+    return sys.getsizeof(rows)
 
 
 def slice_preview(
