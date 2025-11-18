@@ -47,7 +47,7 @@ RUN addgroup --system --gid 1001 fastapi \
     && adduser --system --uid 1001 --ingroup fastapi fastapi
 
 WORKDIR /code
-COPY --chown=fastapi:fastapi main.py utils.py espen.db /code
+COPY --chown=fastapi:fastapi main.py utils.py response_guard.py espen.db /code
 
 USER fastapi
 
