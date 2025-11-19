@@ -61,6 +61,8 @@ proxy:
   app_port: 8000
 
 logging:
-  driver: json-file
+  driver: awslogs
   options:
-    max-size: 100m
+    awslogs-region: us-east-1
+    awslogs-group: "/espen-sql-api/app"
+    awslogs-create-group: true
