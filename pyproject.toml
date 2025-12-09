@@ -15,6 +15,7 @@ dependencies = [
     "python-dotenv>=1.0.1",
     "sqlalchemy>=2.0.36",
     "sqlglot>=25.29.0",
+    "tenacity>=9.0.0",
     "uvicorn>=0.32.0",
     "httpx>=0.28.1",
 ]

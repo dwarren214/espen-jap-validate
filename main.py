@@ -11,7 +11,7 @@ import orjson
 import httpx
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, field_validator, FieldValidationInfo
 from sqlalchemy import (
@@ -28,6 +28,8 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.sqlite import Insert
 from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.exc import OperationalError, DBAPIError
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception
 
 from utils import quote_identifiers  # Import the helper function
 from response_guard import (
@@ -39,6 +41,28 @@ from response_guard import (
 BASE_PATH = Path(__file__).resolve(strict=True).parent
 load_dotenv()
 
+
+def is_transient_db_error(exception):
+    """Check if database error is transient and should be retried."""
+    if isinstance(exception, (OperationalError, DBAPIError)):
+        error_str = str(exception).upper()
+        # MSSQL/pyodbc transient error codes
+        transient_codes = ['08S01', '08001', 'HYT00', 'COMMUNICATION LINK', 'CONNECTION RESET']
+        return any(code in error_str for code in transient_codes)
+    return False
+
+
+@retry(
+    retry=retry_if_exception(is_transient_db_error),
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=1, max=10),
+    reraise=True
+)
+def execute_query_with_retry(session, query_text):
+    """Execute SQL query with automatic retry for transient errors."""
+    result = session.execute(text(query_text))
+    return result
+
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
@@ -49,18 +73,53 @@ logger.addHandler(stream_handler)
 
 app = FastAPI()
 
+# Connection pool configuration from environment variables
+POOL_SIZE = int(os.getenv("DB_POOL_SIZE", "5"))
+POOL_MAX_OVERFLOW = int(os.getenv("DB_POOL_MAX_OVERFLOW", "10"))
+POOL_RECYCLE = int(os.getenv("DB_POOL_RECYCLE", "3600"))
+POOL_PRE_PING = os.getenv("DB_POOL_PRE_PING", "true").lower() == "true"
+ECHO_POOL = os.getenv("DB_ECHO_POOL", "false")
+
 # Database configuration
 DATABASE_URL = os.getenv("DATABASE_URL")
-engine = create_engine(DATABASE_URL)
+engine = create_engine(
+    DATABASE_URL,
+    pool_pre_ping=POOL_PRE_PING,
+    pool_recycle=POOL_RECYCLE,
+    pool_size=POOL_SIZE,
+    max_overflow=POOL_MAX_OVERFLOW,
+    echo_pool=ECHO_POOL if ECHO_POOL == "debug" else False,
+)
 SessionLocal = sessionmaker(bind=engine)
 
 REMOTE_DATABASE_URL = os.getenv("REMOTE_DATABASE_URL")
-remote_engine = create_engine(REMOTE_DATABASE_URL)
+remote_engine = create_engine(
+    REMOTE_DATABASE_URL,
+    pool_pre_ping=POOL_PRE_PING,
+    pool_recycle=POOL_RECYCLE,
+    pool_size=POOL_SIZE,
+    max_overflow=POOL_MAX_OVERFLOW,
+    echo_pool=ECHO_POOL if ECHO_POOL == "debug" else False,
+)
 RemoteSessionLocal = sessionmaker(bind=remote_engine)
 
 meta_db_path = BASE_PATH / "espen.db"
 meta_engine = create_engine("sqlite:///" + str(meta_db_path))
 MetaSessionLocal = sessionmaker(bind=meta_engine)
+
+
+def get_pool_status(engine_name: str, engine):
+    """Get connection pool status for monitoring."""
+    pool = engine.pool
+    return {
+        "engine": engine_name,
+        "size": pool.size(),
+        "checked_in": pool.checkedin(),
+        "checked_out": pool.checkedout(),
+        "overflow": pool.overflow(),
+        "status": "healthy" if pool.checkedin() > 0 else "degraded"
+    }
+
 
 # Guardrail configuration
 MAX_RETURNED_ROWS = int(os.getenv("MAX_RETURNED_ROWS", "5000"))
@@ -116,6 +175,49 @@ def status():
     return {"status": "up"}
 
 
+@app.get("/health")
+def health_check():
+    """Comprehensive health check including database connections."""
+    health_status = {
+        "status": "healthy",
+        "timestamp": datetime.now().isoformat(),
+        "databases": {}
+    }
+
+    # Check PostgreSQL connection
+    try:
+        with SessionLocal() as session:
+            session.execute(text("SELECT 1"))
+        health_status["databases"]["postgresql"] = {
+            "status": "healthy",
+            "pool": get_pool_status("postgresql", engine)
+        }
+    except Exception as e:
+        health_status["status"] = "unhealthy"
+        health_status["databases"]["postgresql"] = {
+            "status": "unhealthy",
+            "error": str(e)
+        }
+
+    # Check MSSQL connection
+    try:
+        with RemoteSessionLocal() as session:
+            session.execute(text("SELECT 1"))
+        health_status["databases"]["mssql"] = {
+            "status": "healthy",
+            "pool": get_pool_status("mssql", remote_engine)
+        }
+    except Exception as e:
+        health_status["status"] = "unhealthy"
+        health_status["databases"]["mssql"] = {
+            "status": "unhealthy",
+            "error": str(e)
+        }
+
+    status_code = 200 if health_status["status"] == "healthy" else 503
+    return JSONResponse(content=health_status, status_code=status_code)
+
+
 # Endpoint to execute SQL queries
 @app.post("/execute_sql_query", dependencies=[Depends(api_key_auth)])
 def execute_sql_query(query_data: SQLQuery):
@@ -124,8 +226,8 @@ def execute_sql_query(query_data: SQLQuery):
         # Automatically quote identifiers in the query
         quoted_query = quote_identifiers(query_data.query, is_postgres=False)
 
-        # Execute the quoted query with parameters
-        result = session.execute(text(quoted_query))
+        # Execute the quoted query with retry logic for transient errors
+        result = execute_query_with_retry(session, quoted_query)
         rows = result.fetchall()
         column_names = list(result.keys())
 
@@ -726,7 +828,8 @@ def oncho_execute_query(query_data: SQLQuery):
         # Automatically quote identifiers in the query for PostgreSQL
         quoted_query = quote_identifiers(query_data.query, is_postgres=True)
 
-        result = session.execute(text(quoted_query))
+        # Execute the quoted query with retry logic for transient errors
+        result = execute_query_with_retry(session, quoted_query)
         rows = result.fetchall()
         column_names = list(result.keys())
 
