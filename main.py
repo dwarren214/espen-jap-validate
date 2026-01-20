@@ -30,6 +30,8 @@ from sqlalchemy.dialects.sqlite import Insert
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.exc import OperationalError, DBAPIError
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception
+import sqlglot
+from sqlglot import exp
 
 from utils import quote_identifiers  # Import the helper function
 from response_guard import (
@@ -78,6 +80,8 @@ POOL_SIZE = int(os.getenv("DB_POOL_SIZE", "5"))
 POOL_MAX_OVERFLOW = int(os.getenv("DB_POOL_MAX_OVERFLOW", "10"))
 POOL_RECYCLE = int(os.getenv("DB_POOL_RECYCLE", "3600"))
 POOL_PRE_PING = os.getenv("DB_POOL_PRE_PING", "true").lower() == "true"
+POOL_TIMEOUT = int(os.getenv("DB_POOL_TIMEOUT", "30"))
+QUERY_TIMEOUT = int(os.getenv("DB_QUERY_TIMEOUT", "30"))
 ECHO_POOL = os.getenv("DB_ECHO_POOL", "false")
 
 # Database configuration
@@ -88,6 +92,8 @@ engine = create_engine(
     pool_recycle=POOL_RECYCLE,
     pool_size=POOL_SIZE,
     max_overflow=POOL_MAX_OVERFLOW,
+    pool_timeout=POOL_TIMEOUT,
+    connect_args={"connect_timeout": QUERY_TIMEOUT},
     echo_pool=ECHO_POOL if ECHO_POOL == "debug" else False,
 )
 SessionLocal = sessionmaker(bind=engine)
@@ -99,6 +105,8 @@ remote_engine = create_engine(
     pool_recycle=POOL_RECYCLE,
     pool_size=POOL_SIZE,
     max_overflow=POOL_MAX_OVERFLOW,
+    pool_timeout=POOL_TIMEOUT,
+    connect_args={"timeout": QUERY_TIMEOUT},
     echo_pool=ECHO_POOL if ECHO_POOL == "debug" else False,
 )
 RemoteSessionLocal = sessionmaker(bind=remote_engine)
@@ -218,9 +226,56 @@ def health_check():
     return JSONResponse(content=health_status, status_code=status_code)
 
 
+def validate_query_safety(query: str) -> tuple[bool, str]:
+    """
+    Validate query for potential memory issues using sqlglot AST parsing.
+    Returns (is_safe, error_message).
+    """
+    # Try parsing with different dialects (tsql for TOP support, mysql for common syntax)
+    for dialect in [None, "tsql", "mysql"]:
+        try:
+            # Parse query into AST
+            parsed = sqlglot.parse_one(query, dialect=dialect)
+
+            # Only validate SELECT statements
+            if not isinstance(parsed, exp.Select):
+                return True, ""
+
+            # Check if query has SELECT *
+            has_star = any(isinstance(expr, exp.Star) for expr in parsed.expressions)
+
+            if has_star:
+                # Check for LIMIT/TOP/FETCH clauses
+                has_limit = (
+                    parsed.args.get("limit") is not None or
+                    any(isinstance(expr, exp.Limit) for expr in parsed.find_all(exp.Limit)) or
+                    any(isinstance(expr, exp.Fetch) for expr in parsed.find_all(exp.Fetch))
+                )
+
+                if not has_limit:
+                    return False, "Unbounded SELECT * queries are not allowed. Please add a LIMIT/TOP clause or specify columns."
+
+            # Successfully validated
+            return True, ""
+
+        except Exception:
+            # Try next dialect
+            continue
+
+    # If all dialects fail to parse, log and allow (don't block valid queries)
+    logger.warning("query_validation_parse_error|query=%s", query[:100])
+    return True, ""
+
+
 # Endpoint to execute SQL queries
 @app.post("/execute_sql_query", dependencies=[Depends(api_key_auth)])
 def execute_sql_query(query_data: SQLQuery):
+    # Validate query safety before execution
+    is_safe, error_msg = validate_query_safety(query_data.query)
+    if not is_safe:
+        logger.warning("query_validation_failed|query=%s|reason=%s", query_data.query[:100], error_msg)
+        raise HTTPException(status_code=400, detail=error_msg)
+
     session = RemoteSessionLocal()
     try:
         # Automatically quote identifiers in the query
@@ -353,6 +408,12 @@ def query_campaign_hub_data(query_data: SQLQuery):
 
     The API data is updated every night, so we create a new database file each day.
     """
+
+    # Validate query safety before execution
+    is_safe, error_msg = validate_query_safety(query_data.query)
+    if not is_safe:
+        logger.warning("query_validation_failed|endpoint=query_campaign_hub_data|query=%s|reason=%s", query_data.query[:100], error_msg)
+        raise HTTPException(status_code=400, detail=error_msg)
 
     today = datetime.now().date()
     ensure_campaigns_db_exists()
@@ -823,6 +884,12 @@ def oncho_top3(request: Top3Request):
 
 @app.post("/oncho/execute_query", dependencies=[Depends(api_key_auth)])
 def oncho_execute_query(query_data: SQLQuery):
+    # Validate query safety before execution
+    is_safe, error_msg = validate_query_safety(query_data.query)
+    if not is_safe:
+        logger.warning("query_validation_failed|endpoint=oncho_execute_query|query=%s|reason=%s", query_data.query[:100], error_msg)
+        raise HTTPException(status_code=400, detail=error_msg)
+
     session = SessionLocal()
     try:
         # Automatically quote identifiers in the query for PostgreSQL
