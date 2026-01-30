@@ -37,7 +37,8 @@ RUN --mount=type=cache,target=/root/.cache \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
     uv sync -v \
         --locked \
-        --no-dev
+        --no-dev \
+        --no-install-project
 
 
 ENV PYTHONUNBUFFERED=1
