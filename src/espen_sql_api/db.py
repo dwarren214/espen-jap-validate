@@ -49,7 +49,10 @@ remote_engine = create_engine(
 RemoteSessionLocal = sessionmaker(bind=remote_engine)
 
 # SQLite metadata
-meta_db_path = BASE_PATH / "espen.db"
+# Docker: /code/espen.db, Local: project_root/espen.db
+_docker_path = Path("/code/espen.db")
+_local_path = BASE_PATH.parent.parent / "espen.db"
+meta_db_path = _docker_path if _docker_path.exists() else _local_path
 meta_engine = create_engine("sqlite:///" + str(meta_db_path))
 MetaSessionLocal = sessionmaker(bind=meta_engine)
 
