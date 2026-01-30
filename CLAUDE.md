@@ -23,11 +23,14 @@ uv run uvicorn espen_sql_api.main:app --reload
 uv run ruff check .
 uv run ruff check --fix .
 
+# Test
+uv run pytest tests/ -v
+
 # Deploy (from deploy/ dir, requires Kamal + 1Password CLI + AWS CLI)
 cd deploy && kamal deploy
 ```
 
-No test suite currently.
+Basic integration tests in `tests/` (SQLite endpoints tested locally, DB endpoints skipped without real connections).
 
 ## Architecture
 
