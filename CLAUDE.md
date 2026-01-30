@@ -31,16 +31,24 @@ No test suite currently.
 
 ## Architecture
 
-**Single-file API**: `main.py` contains all FastAPI endpoints, DB engines, Pydantic models.
+**Modular structure:**
+- `main.py` – FastAPI app, health endpoints, router includes
+- `db.py` – database engines and session factories
+- `auth.py` – API key authentication
+- `config.py` – guardrail thresholds, app configuration
+- `schemas.py` – Pydantic request models (SQLQuery, TableNames)
+- `utils.py` – `quote_identifiers()`, `execute_query_with_retry()`, `validate_query_safety()`
+- `response_guard.py` – `GuardrailThresholds`, `estimate_result_size()`, `build_guardrail_payload()`
 
-**Three DB engines:**
+**Routers:**
+- `routers/oncho.py` – PostgreSQL oncho projection endpoints
+- `routers/espen.py` – MSSQL analytical table + SQLite metadata endpoints
+- `routers/campaign.py` – Campaign Hub API + SQLite cache endpoints
+
+**Three DB engines** (in `db.py`):
 - `engine` (PostgreSQL) – `DATABASE_URL` – oncho projection data
 - `remote_engine` (MSSQL via pyodbc) – `REMOTE_DATABASE_URL` – ESPEN analytical tables
 - `meta_engine` (SQLite) – `espen.db` – table metadata lookup
-
-**Key modules:**
-- `utils.py`: `quote_identifiers()` – transpiles SQL via sqlglot; falls back to OpenAI if parsing fails
-- `response_guard.py`: `GuardrailThresholds`, `estimate_result_size()`, `build_guardrail_payload()` – enforces row/byte caps
 
 **Query safety:** `validate_query_safety()` uses sqlglot AST to block unbounded `SELECT *` queries.
 
