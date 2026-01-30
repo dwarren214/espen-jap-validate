@@ -39,6 +39,16 @@ This project connects to multiple databases:
    curl -X POST localhost:8000/fetch_column_names_and_types -H "Authorization: Bearer $API_KEY" -d'{"tables": ["Afro_Admin0"]}' -H "Content-type: application/json"
    ```
 
+## Testing
+
+Run tests in Docker (no local MSSQL driver needed):
+
+```bash
+./scripts/run_tests_docker.py
+```
+
+Uses `.env` file if present for real database connections.
+
 ## Maintaining espen.db
 
 The `espen.db` SQLite database contains metadata (table names and column descriptions) for the ESPEN analytical tables. This metadata is used by chatbots to understand the schema before constructing SQL queries.
