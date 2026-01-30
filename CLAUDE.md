@@ -54,6 +54,13 @@ No test suite currently.
 
 **Campaign data:** Daily SQLite DB created from external API; old DBs auto-purged after 2 days.
 
+**Metadata maintenance:** `espen.db` is rebuilt from `ESPEN_DB_Inventory_Final.xlsx` (obtained from ESPEN contact).
+
+## Scripts
+
+- `scripts/rebuild_espen_db.py` – Rebuild `espen.db` from Excel inventory
+- `scripts/compare_db_schema.py --docker` – Compare local metadata with live MSSQL schema
+
 ## Environment Variables
 
 See `.env.example`. Key vars:
