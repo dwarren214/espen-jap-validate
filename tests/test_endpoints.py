@@ -17,7 +17,8 @@ from fastapi.testclient import TestClient
 from espen_sql_api.main import app
 
 client = TestClient(app, raise_server_exceptions=False)
-AUTH_HEADER = {"Authorization": "Bearer test-api-key"}
+api_key = os.environ.get("API_KEY")
+AUTH_HEADER = {"Authorization": f"Bearer {api_key}"}
 
 
 class TestHealthEndpoints:
@@ -109,7 +110,7 @@ class TestMSSQLEndpoints:
             json={"query": "SELECT TOP 1 * FROM Afro_Admin0"},
             headers=AUTH_HEADER,
         )
-        assert response.status_code == 200
+        assert response.status_code == 200, response.content
 
 
 class TestPostgreSQLEndpoints:
@@ -125,7 +126,7 @@ class TestPostgreSQLEndpoints:
             json={"query": "SELECT 1"},
             headers=AUTH_HEADER,
         )
-        assert response.status_code == 200
+        assert response.status_code == 200, response.content
 
 
 class TestCampaignEndpoints:
