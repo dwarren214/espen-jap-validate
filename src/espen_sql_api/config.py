@@ -6,7 +6,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from response_guard import GuardrailThresholds
+from .response_guard import GuardrailThresholds
 
 load_dotenv()
 

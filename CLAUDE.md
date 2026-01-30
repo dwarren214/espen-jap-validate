@@ -17,7 +17,7 @@ FastAPI-based HTTP SQL API for ESPEN data. Allows chatbots (via Open Chat Studio
 uv sync
 
 # Run dev server
-uv run uvicorn main:app --reload
+uv run uvicorn espen_sql_api.main:app --reload
 
 # Lint
 uv run ruff check .
@@ -31,7 +31,7 @@ No test suite currently.
 
 ## Architecture
 
-**Modular structure:**
+**Src layout** (`src/espen_sql_api/`):
 - `main.py` – FastAPI app, health endpoints, router includes
 - `db.py` – database engines and session factories
 - `auth.py` – API key authentication
@@ -39,8 +39,6 @@ No test suite currently.
 - `schemas.py` – Pydantic request models (SQLQuery, TableNames)
 - `utils.py` – `quote_identifiers()`, `execute_query_with_retry()`, `validate_query_safety()`
 - `response_guard.py` – `GuardrailThresholds`, `estimate_result_size()`, `build_guardrail_payload()`
-
-**Routers:**
 - `routers/oncho.py` – PostgreSQL oncho projection endpoints
 - `routers/espen.py` – MSSQL analytical table + SQLite metadata endpoints
 - `routers/campaign.py` – Campaign Hub API + SQLite cache endpoints

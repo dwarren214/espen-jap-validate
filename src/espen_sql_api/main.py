@@ -9,14 +9,14 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
-from db import (
+from .db import (
     SessionLocal,
     RemoteSessionLocal,
     engine,
     remote_engine,
     get_pool_status,
 )
-from routers import oncho, espen, campaign
+from .routers import oncho, espen, campaign
 
 load_dotenv()
 
