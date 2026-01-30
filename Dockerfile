@@ -47,11 +47,12 @@ RUN addgroup --system --gid 1001 fastapi \
     && adduser --system --uid 1001 --ingroup fastapi fastapi
 
 WORKDIR /code
-COPY --chown=fastapi:fastapi main.py utils.py response_guard.py espen.db /code
+COPY --chown=fastapi:fastapi src/espen_sql_api /code/espen_sql_api
+COPY --chown=fastapi:fastapi espen.db /code
 
 USER fastapi
 
 # make sure we use the virtualenv python/uvuicorn by default
 ENV PATH="/code/.venv/bin:$PATH"
 
-CMD ["uvicorn", "main:app", "--host=0.0.0.0", "--port=8000"]
+CMD ["uvicorn", "espen_sql_api.main:app", "--host=0.0.0.0", "--port=8000"]
