@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -m py_compile:*)",
+      "Bash(uv run ruff check --help:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(uv run ruff:*)",
+      "Bash(ls:*)"
+    ]
+  }
+}
