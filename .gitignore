@@ -17,3 +17,4 @@ tests_local/
 .coverage.*
 .vscode/
 docs/
+/.envrc
