@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sys
 from dataclasses import dataclass
-from typing import Iterable, Sequence, List, Dict, Optional
+from typing import Iterable, Sequence, Dict
 
 
 @dataclass(frozen=True)
