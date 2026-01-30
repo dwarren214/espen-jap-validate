@@ -1,6 +1,67 @@
 import logging
+
 import openai
 import sqlglot
+from sqlglot import exp
+from sqlalchemy import text
+from sqlalchemy.exc import OperationalError, DBAPIError
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception
+
+logger = logging.getLogger(__name__)
+
+
+def is_transient_db_error(exception):
+    """Check if database error is transient and should be retried."""
+    if isinstance(exception, (OperationalError, DBAPIError)):
+        error_str = str(exception).upper()
+        transient_codes = ['08S01', '08001', 'HYT00', 'COMMUNICATION LINK', 'CONNECTION RESET']
+        return any(code in error_str for code in transient_codes)
+    return False
+
+
+@retry(
+    retry=retry_if_exception(is_transient_db_error),
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=1, max=10),
+    reraise=True
+)
+def execute_query_with_retry(session, query_text):
+    """Execute SQL query with automatic retry for transient errors."""
+    result = session.execute(text(query_text))
+    return result
+
+
+def validate_query_safety(query: str) -> tuple[bool, str]:
+    """
+    Validate query for potential memory issues using sqlglot AST parsing.
+    Returns (is_safe, error_message).
+    """
+    for dialect in [None, "tsql", "mysql"]:
+        try:
+            parsed = sqlglot.parse_one(query, dialect=dialect)
+
+            if not isinstance(parsed, exp.Select):
+                return True, ""
+
+            has_star = any(isinstance(expr, exp.Star) for expr in parsed.expressions)
+
+            if has_star:
+                has_limit = (
+                    parsed.args.get("limit") is not None or
+                    any(isinstance(expr, exp.Limit) for expr in parsed.find_all(exp.Limit)) or
+                    any(isinstance(expr, exp.Fetch) for expr in parsed.find_all(exp.Fetch))
+                )
+
+                if not has_limit:
+                    return False, "Unbounded SELECT * queries are not allowed. Please add a LIMIT/TOP clause or specify columns."
+
+            return True, ""
+
+        except Exception:
+            continue
+
+    logger.warning("query_validation_parse_error|query=%s", query[:100])
+    return True, ""
 
 
 def quote_identifiers(query: str, is_postgres: bool = True) -> str:

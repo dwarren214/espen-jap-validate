@@ -7,7 +7,10 @@ HTTP API.
 
 ## Prerequisites
 
-This project requires access to a PostgreSQL database.
+This project connects to multiple databases:
+- **PostgreSQL** – oncho projection data
+- **MSSQL** (Azure SQL) – ESPEN analytical tables
+- **SQLite** – local metadata cache (`espen.db`)
 
 ## Setup
 
@@ -21,17 +24,12 @@ This project requires access to a PostgreSQL database.
    uv sync   
    ```
 
-3. Create a `.env` file with the following content:
-
-   ```shell
-    DATABASE_URL=postgresql://user:password@host:port/dbname
-    API_KEY=random-key
-    ```
+3. Create a `.env` file by copying `.env.example` and updating the values
 
 4. Run the app
 
     ```shell
-    uv run uvicorn main:app --reload
+    uv run uvicorn espen_sql_api.main:app --reload
     ```
 
 5. Test the API
@@ -40,3 +38,40 @@ This project requires access to a PostgreSQL database.
    export API_KEY="xxx"
    curl -X POST localhost:8000/fetch_column_names_and_types -H "Authorization: Bearer $API_KEY" -d'{"tables": ["Afro_Admin0"]}' -H "Content-type: application/json"
    ```
+
+## Testing
+
+Run tests in Docker (no local MSSQL driver needed):
+
+```bash
+./scripts/run_tests_docker.py
+```
+
+Uses `.env` file if present for real database connections.
+
+## Maintaining espen.db
+
+The `espen.db` SQLite database contains metadata (table names and column descriptions) for the ESPEN analytical tables. This metadata is used by chatbots to understand the schema before constructing SQL queries.
+
+### Updating the metadata
+
+1. Obtain the latest `ESPEN_DB_Inventory_Final.xlsx` from your ESPEN contact
+2. Place it in the project root
+3. Run the rebuild script:
+   ```bash
+   uv run scripts/rebuild_espen_db.py
+   ```
+4. Commit the updated `espen.db` and `espen_tables.sql`
+
+### Comparing with the live database
+
+To verify the metadata matches the actual MSSQL schema:
+
+```bash
+REMOTE_DATABASE_URL="mssql+pyodbc://..." ./scripts/compare_db_schema.py --docker
+```
+
+This will show:
+- Tables in espen.db but not in MSSQL
+- Tables in MSSQL but missing from espen.db
+- Column differences for common tables
