@@ -135,7 +135,8 @@ class TestCampaignEndpoints:
         )
         assert response.status_code == 200
         data = response.json()
-        assert isinstance(data, dict)
+        assert isinstance(data, list)
+        assert "campaign_id" in data
 
     def test_query_campaign_hub_data_invalid_query(self, client):
         """Invalid SQL returns error."""
