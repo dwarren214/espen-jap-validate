@@ -2,7 +2,6 @@ local
 .env
 env/
 .venv/
-deploy/.kamal/secrets
 .idea
 .DS_Store
 campaigns*.db
