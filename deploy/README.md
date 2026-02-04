@@ -41,7 +41,7 @@ aws configure sso --profile ocs-misc
 aws sso login --profile ocs-misc
 ```
 
-Note: If you used a different profile name you will need to set the `AWS_PROFILE` environment variable to the profile name.
+Note: The profile must be called 'ocs-misc' since it is hard coded into the secrets file.
 
 ## 2. Setup the EC2 instance
 

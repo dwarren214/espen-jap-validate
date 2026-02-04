@@ -62,7 +62,7 @@ Basic integration tests in `tests/` (SQLite endpoints tested locally, DB endpoin
 ## Scripts
 
 - `scripts/rebuild_espen_db.py` – Rebuild `espen.db` from Excel inventory
-- `scripts/compare_db_schema.py --docker` – Compare local metadata with live MSSQL schema
+- `scripts/compare_db_schema.py` – Compare local metadata with live MSSQL schema (run via `kamal app exec`)
 
 ## Environment Variables
 

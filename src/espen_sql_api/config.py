@@ -25,5 +25,6 @@ guardrail_thresholds = GuardrailThresholds(
 
 # Campaign Hub API
 ESPEN_CAMPAIGN_HUB_KEY = os.getenv("ESPEN_CAMPAIGN_HUB_KEY")
+CAMPAIGN_DB_DIR = Path(os.getenv("CAMPAIGN_DB_DIR", BASE_PATH / "campaign_dbs"))
 if not ESPEN_CAMPAIGN_HUB_KEY:
     logging.warning("ESPEN_CAMPAIGN_HUB_KEY environment variable is not set. Campaign data may not be available.")

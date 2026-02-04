@@ -2,49 +2,14 @@
 """Compare espen.db metadata with actual MSSQL schema.
 
 Usage:
-    REMOTE_DATABASE_URL="mssql+pyodbc://..." ./scripts/compare_db_schema.py --docker
+    REMOTE_DATABASE_URL="mssql+pyodbc://..." ./scripts/compare_db_schema.py
 """
 
-import argparse
 import json
 import os
 import sqlite3
-import subprocess
 import sys
 from pathlib import Path
-
-
-def run_in_docker():
-    """Run this script inside Docker container."""
-    project_root = Path(__file__).parent.parent
-
-    remote_url = os.environ.get("REMOTE_DATABASE_URL")
-    if not remote_url:
-        print("Error: REMOTE_DATABASE_URL not set", file=sys.stderr)
-        sys.exit(1)
-
-    # Build image if needed
-    print("Building Docker image...")
-    subprocess.run(
-        ["docker", "build", "-t", "espen-sql-api:schema-check", "."],
-        cwd=project_root,
-        check=True,
-    )
-
-    # Run script in container
-    script_path = Path(__file__).resolve()
-    print("Running in Docker...\n")
-    subprocess.run(
-        [
-            "docker", "run", "--rm",
-            "-e", f"REMOTE_DATABASE_URL={remote_url}",
-            "-v", f"{script_path}:/code/compare_db_schema.py:ro",
-            "-v", f"{project_root}/espen.db:/code/espen.db:ro",
-            "espen-sql-api:schema-check",
-            "python", "/code/compare_db_schema.py",
-        ],
-        check=True,
-    )
 
 
 def compare():
@@ -57,7 +22,7 @@ def compare():
         sys.exit(1)
 
     # Load local SQLite metadata
-    db_path = Path("/code/espen.db") if Path("/code/espen.db").exists() else Path(__file__).parent.parent / "espen.db"
+    db_path = Path(__file__).parent.parent / "espen.db"
     conn = sqlite3.connect(db_path)
     local_tables = {}
     for row in conn.execute("SELECT Name_Analytical_Table, Fields FROM espen_tables"):
@@ -135,19 +100,5 @@ def compare():
         print("\n--- No column differences in common tables ---")
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--docker", action="store_true",
-        help="Run inside Docker container (no local MSSQL driver needed)"
-    )
-    args = parser.parse_args()
-
-    if args.docker:
-        run_in_docker()
-    else:
-        compare()
-
-
 if __name__ == "__main__":
-    main()
+    compare()

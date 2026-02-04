@@ -3,12 +3,13 @@ service: espen-sql-api
 image: dimagi/espen
 
 env:
+  clear:
+    CAMPAIGN_DB_DIR: /code/campaign_dbs
   secret:
     - DATABASE_URL
     - API_KEY
     - ESPEN_CAMPAIGN_HUB_KEY
     - REMOTE_DATABASE_URL
-    - ESPEN_CAMPAIGN_HUB_KEY
 
 # https://kamal-deploy.org/docs/configuration/roles/
 servers:

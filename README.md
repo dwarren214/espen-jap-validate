@@ -39,15 +39,13 @@ This project connects to multiple databases:
    curl -X POST localhost:8000/fetch_column_names_and_types -H "Authorization: Bearer $API_KEY" -d'{"tables": ["Afro_Admin0"]}' -H "Content-type: application/json"
    ```
 
-## Testing
+## Integration Testing
 
-Run tests in Docker (no local MSSQL driver needed):
+There are a basic set of tests which can be run against the production endpoint to verify it is functioning correctly:
 
 ```bash
-./scripts/run_tests_docker.py
+uv run pytest -v
 ```
-
-Uses `.env` file if present for real database connections.
 
 ## Maintaining espen.db
 
@@ -65,10 +63,10 @@ The `espen.db` SQLite database contains metadata (table names and column descrip
 
 ### Comparing with the live database
 
-To verify the metadata matches the actual MSSQL schema:
+To verify the metadata matches the actual MSSQL schema, run inside the deployed container:
 
 ```bash
-REMOTE_DATABASE_URL="mssql+pyodbc://..." ./scripts/compare_db_schema.py --docker
+cd deploy && kamal app exec 'python scripts/compare_db_schema.py'
 ```
 
 This will show:
