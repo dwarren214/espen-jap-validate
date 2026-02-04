@@ -65,10 +65,10 @@ The `espen.db` SQLite database contains metadata (table names and column descrip
 
 ### Comparing with the live database
 
-To verify the metadata matches the actual MSSQL schema:
+To verify the metadata matches the actual MSSQL schema, run inside the deployed container:
 
 ```bash
-REMOTE_DATABASE_URL="mssql+pyodbc://..." ./scripts/compare_db_schema.py --docker
+cd deploy && kamal app exec 'python scripts/compare_db_schema.py'
 ```
 
 This will show:
