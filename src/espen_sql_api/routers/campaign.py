@@ -22,7 +22,7 @@ from sqlalchemy.dialects.sqlite import Insert
 from sqlalchemy.orm import sessionmaker
 
 from ..auth import api_key_auth
-from ..config import BASE_PATH, ESPEN_CAMPAIGN_HUB_KEY, guardrail_thresholds
+from ..config import CAMPAIGN_DB_DIR, ESPEN_CAMPAIGN_HUB_KEY, guardrail_thresholds
 from ..response_guard import estimate_result_size, build_guardrail_payload
 from ..schemas import SQLQuery
 from ..utils import validate_query_safety
@@ -56,7 +56,7 @@ def get_campaign_db_path(date):
     if date is None:
         date = datetime.now().date()
     db_name = f'campaigns-{date}.db'
-    return BASE_PATH / "campaign_dbs" / db_name
+    return CAMPAIGN_DB_DIR / db_name
 
 
 def ensure_campaigns_db_exists():
@@ -74,6 +74,7 @@ def ensure_campaigns_db_exists():
 
 def create_db_from_data(db_path: Path, data):
     """Creates a new campaigns table with the latest data from the API."""
+    db_path.parent.mkdir(parents=True, exist_ok=True)
     engine = create_engine(f'sqlite:///{db_path}')
     metadata = MetaData()
 
@@ -135,7 +136,7 @@ def fetch_campaign_data():
 
 def remove_old_dbs():
     """Removes old campaign database files, keeping only the last 2 days."""
-    db_dir = BASE_PATH / "campaign_dbs"
+    db_dir = CAMPAIGN_DB_DIR
     if not db_dir.exists():
         return
 
