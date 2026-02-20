@@ -1,0 +1,16 @@
+spec_version_date: "2026-02-18"
+governance_classes:
+  must_not_change:
+    ui_color: blue
+    semantics: protected_formula
+    severity_on_literal_override: error
+    severity_on_formula_mismatch: error
+  editable_override_warn:
+    ui_color: green
+    semantics: editable_formula
+    severity_on_literal_override: warn
+    severity_on_formula_mismatch: warn
+excluded_sheets:
+  - DEC
+  - IVM+
+  - DATA_POLICY

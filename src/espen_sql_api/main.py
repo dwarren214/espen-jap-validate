@@ -16,7 +16,7 @@ from .db import (
     remote_engine,
     get_pool_status,
 )
-from .routers import oncho, espen, campaign
+from .routers import oncho, espen, campaign, jap_validation
 
 load_dotenv()
 
@@ -83,3 +83,4 @@ def health_check():
 app.include_router(oncho.router)
 app.include_router(espen.router)
 app.include_router(campaign.router)
+app.include_router(jap_validation.router)

@@ -1,0 +1,254 @@
+{
+  "spec_version_date": "2026-02-18",
+  "template_version_marker_contains": "Joint request for selected PC medicines",
+  "iu_window": {
+    "start_row": 10,
+    "end_row_expression": "9+N",
+    "n_source_cell": "INTRO!E45"
+  },
+  "iu_sheet_order": [
+    "COUNTRY_INFO",
+    "ALB_MBD",
+    "PZQ",
+    "IVM"
+  ],
+  "iu_sheets": {
+    "COUNTRY_INFO": {
+      "must_not_change_columns": [
+        "A",
+        "N",
+        "O",
+        "Q"
+      ],
+      "editable_override_warn_columns": [
+        "E",
+        "F",
+        "G",
+        "L",
+        "M",
+        "P",
+        "R",
+        "S",
+        "T",
+        "U"
+      ],
+      "canonical_anchor_row": 10,
+      "canonical_formulas_by_column": {
+        "A": "=IF(INTRO!$E$33<>0,INTRO!$E$33, \" \")",
+        "N": "=IF(INTRO!$E$41=\"Endemic\", IF($J10>1, IF($J10=4, \"Unknown\", IF($J10=99, \"Surveillance\", IF($J10=11,E10*0.5, E10))), 0),\"Not required\")",
+        "O": "=IF(INTRO!$E$41=\"Endemic\", IF($J10>1, IF($J10=4, \"Unknown\", IF($J10=99, \"Surveillance\", IF($J10=11, F10*0.5, F10))), 0),\"Not required\")",
+        "Q": "=IF(INTRO!$E$41=\"Endemic\", IF($J10>1, IF($J10=4, \"Unknown\", IF($J10=99, \"Surveillance\", SUM($N10:$P10))), 0),\"Not required\")",
+        "E": "=IF(INTRO!$E$48=\"\",\"\",ROUND($D10*INTRO!$E$48,0))",
+        "F": "=IF(INTRO!$E$49=\"\",\"\",ROUND($D10*INTRO!$E$49,0))",
+        "G": "=IF(INTRO!$E$50=\"\",\"\",ROUND($D10*INTRO!$E$50,0))",
+        "L": "=IF(INTRO!$E$37=\"Endemic\",IF($H10>0,IF($H10=4,\"Unknown\",IF($H10=99,\"Stopped\",$D10)),0),\"Not required\")",
+        "M": "=IF(INTRO!$E$39=\"Endemic\", IF($I10>0, IF($I10=4,\"Unknown\",IF($I10=99,\"Stopped\",$D10)), 0),\"Not required\")",
+        "P": "=IF(INTRO!$E$41=\"Endemic\", IF($J10>1, IF($J10=4, \"Unknown\", IF($J10=99, \"Surveillance\", IF($J10=11, ROUND(D10*INTRO!$E$51*0.5,0), ROUND(D10*INTRO!$E$51,0)))), 0),\"Not required\")",
+        "R": "=IF(INTRO!$E$43=\"Endemic\", IF($K10>1, IF($K10=4, \"Unknown\", IF($K10=99, \"Surveillance\", ROUND(E10*0.75,0))), 0),\"Not required\")",
+        "S": "=IF(INTRO!$E$43=\"Endemic\", IF($K10>1, IF($K10=4, \"Unknown\", IF($K10=99, \"Surveillance\", F10)), 0),\"Not required\")",
+        "T": "=IF(INTRO!$E$43=\"Endemic\", IF($K10>1, IF($K10=4, \"Unknown\", IF($K10=99, \"Surveillance\", G10)), 0),\"Not required\")",
+        "U": "=IF(INTRO!$E$43=\"Endemic\", IF($K10>1, IF($K10=4, \"Unknown\", IF($K10=99, \"Surveillance\", SUM($R10:$T10))), 0),\"Not required\")"
+      },
+      "non_formula_columns_from_section5": []
+    },
+    "ALB_MBD": {
+      "must_not_change_columns": [
+        "A",
+        "B",
+        "C",
+        "D",
+        "E",
+        "H",
+        "I",
+        "K",
+        "L",
+        "M",
+        "N",
+        "O",
+        "P",
+        "R",
+        "S",
+        "U"
+      ],
+      "editable_override_warn_columns": [],
+      "canonical_anchor_row": 10,
+      "canonical_formulas_by_column": {
+        "A": "=IF(AND(INTRO!$E$37=\"Non-endemic\",INTRO!$E$41=\"Non-endemic\"),\" \",IF(COUNTRY_INFO!A10=0,\" \",COUNTRY_INFO!A10))",
+        "B": "=IF(AND(INTRO!$E$37=\"Non-endemic\",INTRO!$E$41=\"Non-endemic\"),\" \",IF(COUNTRY_INFO!B10=0,\" \",COUNTRY_INFO!B10))",
+        "C": "=IF(AND(INTRO!$E$37=\"Non-endemic\",INTRO!$E$41=\"Non-endemic\"),\" \",IF(COUNTRY_INFO!C10=0,\" \",COUNTRY_INFO!C10))",
+        "D": "=IF(AND(INTRO!$E$37=\"Non-endemic\",INTRO!$E$41=\"Non-endemic\"),0,COUNTRY_INFO!V10)",
+        "E": "=IF(AND(INTRO!$E$37=\"Non-endemic\",INTRO!$E$41=\"Non-endemic\"),0,COUNTRY_INFO!X10)",
+        "H": "=IF(OR(COUNTRY_INFO!N10=\"Unknown\",COUNTRY_INFO!N10=\"Surveillance\",COUNTRY_INFO!N10=\"Not required\",COUNTRY_INFO!N10=0),0,IF(INTRO!$E$39=\"Non-endemic\",IF(AND($E10<>0,$G10=\"\"),IF($F10=0,COUNTRY_INFO!N10*$E10,COUNTRY_INFO!N10*($E10-$D10)),IF(AND($E10<>0,$G10<>0),IF($F10=0,COUNTRY_INFO!N10*$G10,COUNTRY_INFO!N10*($G10-$D10)),0)),IF($G10=\"\",COUNTRY_INFO!N10*$E10,COUNTRY_INFO!N10*$G10)))",
+        "I": "=IF(OR(COUNTRY_INFO!O10=\"Unknown\",COUNTRY_INFO!O10=\"Surveillance\",COUNTRY_INFO!O10=\"Not required\",COUNTRY_INFO!O10=0),0,IF($E10<>0, IF($F10=0,COUNTRY_INFO!O10*$E10,COUNTRY_INFO!O10*($E10-$D10)),COUNTRY_INFO!O10*$E10))",
+        "K": "=IF(OR(COUNTRY_INFO!P10=\"Unknown\",COUNTRY_INFO!P10=\"Surveillance\",COUNTRY_INFO!P10=\"Not required\",COUNTRY_INFO!P10=0),0,IF(AND($E10<>0,$J10=\"\"),IF($F10=0,COUNTRY_INFO!P10*$E10,COUNTRY_INFO!P10*($E10-$D10)), IF(AND($E10<>0,$J10<>0),IF($F10=0,COUNTRY_INFO!P10*$J10,COUNTRY_INFO!P10*($J10-$D10)), COUNTRY_INFO!P10*$J10)))",
+        "L": "=ROUND($H10,0)+ROUND($I10,0)+ROUND($K10,0)",
+        "M": "=$F10",
+        "O": "=IF($M10>$N10, $M10-$N10,0)",
+        "P": "=ROUND((IF($G$2=\"ALB\",$H10,0)+IF($I$2=\"ALB\",$I10,0)+IF($J$2=\"ALB\",$K10,0)),0)",
+        "R": "=IF($P10>$Q10,$P10-$Q10,0)",
+        "S": "=ROUND((IF($G$2=\"MBD\",$H10,0)+IF($I$2=\"MBD\",$I10,0)+IF($J$2=\"MBD\",$K10,0)),0)",
+        "U": "=IF($S10>$T10,$S10-$T10,0)"
+      },
+      "non_formula_columns_from_section5": [
+        "N"
+      ]
+    },
+    "PZQ": {
+      "must_not_change_columns": [
+        "A",
+        "B",
+        "C",
+        "D",
+        "H",
+        "N",
+        "O",
+        "P",
+        "R"
+      ],
+      "editable_override_warn_columns": [
+        "E",
+        "F",
+        "G"
+      ],
+      "canonical_anchor_row": 10,
+      "canonical_formulas_by_column": {
+        "A": "=IF(INTRO!$E$43=\"Non-endemic\",\" \", IF(COUNTRY_INFO!A10=0,\" \",COUNTRY_INFO!A10))",
+        "B": "=IF(INTRO!$E$43=\"Non-endemic\",\" \", IF(COUNTRY_INFO!B10=0,\" \",COUNTRY_INFO!B10))",
+        "C": "=IF(INTRO!$E$43=\"Non-endemic\",\" \", IF(COUNTRY_INFO!C10=0,\" \",COUNTRY_INFO!C10))",
+        "D": "=IF(INTRO!$E$43=\"Non-endemic\", \"Not required\", COUNTRY_INFO!Y10)",
+        "H": "=SUM(E10:G10)",
+        "N": "=IF($I10<>\"Yes\",$F10*2,($F10+ROUND(J10*$F10/SUM(COUNTRY_INFO!$E10:$G10),0))*2)",
+        "O": "=IF($I10<>\"Yes\",$G10*3,($G10+ROUND(J10*$G10/SUM(COUNTRY_INFO!$E10:$G10),0))*3)",
+        "P": "=SUM(M10:O10)",
+        "R": "=IF($P10>$Q10,P10-Q10,0)",
+        "E": "=IF(OR(COUNTRY_INFO!R10=\"Unknown\",COUNTRY_INFO!R10=\"Surveillance\",COUNTRY_INFO!R10=\"Not required\",COUNTRY_INFO!R10=0),0,IF($D10<>0, COUNTRY_INFO!R10,0))",
+        "F": "=IF(OR(COUNTRY_INFO!S10=\"Unknown\",COUNTRY_INFO!S10=\"Surveillance\",COUNTRY_INFO!S10=\"Not required\",COUNTRY_INFO!S10=0),0,IF($D10<>0, COUNTRY_INFO!S10,0))",
+        "G": "=IF(OR(COUNTRY_INFO!T10=\"Unknown\",COUNTRY_INFO!T10=\"Surveillance\",COUNTRY_INFO!T10=\"Not required\",COUNTRY_INFO!T10=0),0,IF($D10<>0, COUNTRY_INFO!T10,0))"
+      },
+      "non_formula_columns_from_section5": []
+    },
+    "IVM": {
+      "must_not_change_columns": [
+        "A",
+        "B",
+        "C",
+        "D",
+        "E",
+        "F",
+        "G",
+        "H",
+        "I",
+        "J",
+        "K",
+        "L",
+        "N"
+      ],
+      "editable_override_warn_columns": [],
+      "canonical_anchor_row": 10,
+      "canonical_formulas_by_column": {
+        "A": "=IF(INTRO!$E$39=\"Non-endemic\",\" \",IF(COUNTRY_INFO!A10=0,\" \",COUNTRY_INFO!A10))",
+        "B": "=IF(INTRO!$E$39=\"Non-endemic\",\" \",IF(COUNTRY_INFO!B10=0,\" \",COUNTRY_INFO!B10))",
+        "C": "=IF(INTRO!$E$39=\"Non-endemic\",\" \",IF(COUNTRY_INFO!C10=0,\" \",COUNTRY_INFO!C10))",
+        "D": "=IF(INTRO!$E$39=\"Non-endemic\",0,IF(INTRO!$E$39=\"Endemic but PC is not required\",IF(COUNTRY_INFO!$H10=1,COUNTRY_INFO!F10+COUNTRY_INFO!G10,0),IF(COUNTRY_INFO!$H10=1,COUNTRY_INFO!F10+COUNTRY_INFO!G10,IF(COUNTRY_INFO!$I10=1,IF(COUNTRY_INFO!M10>=(COUNTRY_INFO!F10+COUNTRY_INFO!G10),COUNTRY_INFO!F10+COUNTRY_INFO!G10,COUNTRY_INFO!$M10),0))))",
+        "E": "=IF(AND(INTRO!$E$39=\"Non-endemic\",INTRO!$E$37=\"Non-endemic\"),\"Not required\",IF(INTRO!$E$39=\"Non-endemic\",\"Treat with DEC\",COUNTRY_INFO!V10))",
+        "F": "=IF(INTRO!$E$39<>\"Non-endemic\",COUNTRY_INFO!W10,\"Not required\")",
+        "G": "=IF(COUNTRY_INFO!H10=1, IF($E10=1,$D10, 0),0)",
+        "H": "=IF(COUNTRY_INFO!I10=1, IF(AND(COUNTRY_INFO!$I10=1,$F10<>0),IF(COUNTRY_INFO!M10>=(COUNTRY_INFO!F10+COUNTRY_INFO!G10),COUNTRY_INFO!F10+COUNTRY_INFO!G10,COUNTRY_INFO!$M10), 0),0)",
+        "I": "=IF(G10<H10,0,IF($E10=1, (G10-H10)*2.8, 0))",
+        "J": "=IF($E10<$F10, H10*(F10-E10)*2.8, 0)",
+        "K": "=IF(AND($E10=1, $F10<>0), H10*2.8, 0)",
+        "L": "=SUM(I10:K10)",
+        "N": "=IF($L10>$M10,$L10-$M10,0)"
+      },
+      "non_formula_columns_from_section5": []
+    }
+  },
+  "non_iu_sheet_order": [
+    "SUMMARY",
+    "SHIPMENT"
+  ],
+  "non_iu_sheets": {
+    "SUMMARY": {
+      "must_not_change_cells": [
+        "G12",
+        "G13",
+        "G14",
+        "G16",
+        "G17",
+        "G18",
+        "G19",
+        "G22",
+        "G23",
+        "G24",
+        "G26",
+        "G27",
+        "G28",
+        "B61",
+        "C61",
+        "B62",
+        "C62",
+        "B63",
+        "C63",
+        "B64",
+        "C64"
+      ],
+      "editable_override_warn_cells": [],
+      "canonical_formulas_by_cell": {
+        "G12": "=IF(D12>(E12+F12),D12-E12-F12, 0)",
+        "G13": "=IF(D13>(E13+F13),D13-E13-F13, 0)",
+        "G14": "=IF(D14>(E14+F14),D14-E14-F14, 0)",
+        "G16": "=IF(D16>(E16+F16),D16-E16-F16, 0)",
+        "G17": "=IF(D17>(E17+F17),D17-E17-F17, 0)",
+        "G18": "=IF(D18>(E18+F18),D18-E18-F18, 0)",
+        "G19": "=IF(D19>(E19+F19),D19-E19-F19, 0)",
+        "G22": "=IF(D22>(E22+F22),D22-E22-F22, 0)",
+        "G23": "=IF(D23>(E23+F23),D23-E23-F23, 0)",
+        "G24": "=IF(D24>(E24+F24),D24-E24-F24, 0)",
+        "G26": "=IF(D26>(E26+F26),D26-E26-F26, 0)",
+        "G27": "=IF(D27>(E27+F27),D27-E27-F27, 0)",
+        "G28": "=IF(D28>(E28+F28),D28-E28-F28, 0)",
+        "B61": "=B33",
+        "C61": "=SUM(F33:H33)",
+        "B62": "=B34",
+        "C62": "=SUM(F34:H34)",
+        "B63": "=B35",
+        "C63": "=SUM(F35:H35)",
+        "B64": "=B36",
+        "C64": "=SUM(F36:H36)"
+      },
+      "non_formula_cells_from_section5": []
+    },
+    "SHIPMENT": {
+      "must_not_change_cells": [
+        "C4",
+        "H4"
+      ],
+      "editable_override_warn_cells": [],
+      "canonical_formulas_by_cell": {
+        "C4": "=IF(INTRO!$E$33<>0,INTRO!$E$33,\" \")",
+        "H4": "=IF(INTRO!$E$35<>0,INTRO!$E$35,\" \")"
+      },
+      "non_formula_cells_from_section5": []
+    }
+  },
+  "excluded_sheets": [
+    "DEC",
+    "IVM+",
+    "DATA_POLICY"
+  ],
+  "excluded_summary_ranges": [
+    "D12:F12",
+    "D14:F14",
+    "D16:F16",
+    "D18:F20",
+    "D22:F24",
+    "D26:F28",
+    "B12:C28(non-formula parts)",
+    "B33:B36(non-formula parts)",
+    "F33:H36(non-formula parts)",
+    "B43:B48"
+  ],
+  "excluded_cells": [
+    "SHIPMENT!D4"
+  ]
+}

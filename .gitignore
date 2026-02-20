@@ -1,4 +1,5 @@
-local
+# Local build-only artifacts (never commit)
+local/
 .env
 env/
 .venv/
