@@ -93,6 +93,67 @@ SUMMARY_SHIPMENT_ANCHOR_CELLS = {
     "SUMMARY": ["A1", "G12", "B61", "C61"],
     "SHIPMENT": ["A1", "C4", "H4"],
 }
+STORY10B_SUMMARY_CANONICAL_FORMULAS = {
+    "C6": '=IF(INTRO!$E$33<>0,INTRO!$E$33," ")',
+    "H6": '=IF(INTRO!$E$35<>0,INTRO!$E$35," ")',
+    "G12": "=IF(D12>(E12+F12),D12-E12-F12, 0)",
+    "G13": "=IF(D13>(E13+F13),D13-E13-F13, 0)",
+    "G14": "=IF(D14>(E14+F14),D14-E14-F14, 0)",
+    "G16": "=IF(D16>(E16+F16),D16-E16-F16, 0)",
+    "G17": "=IF(D17>(E17+F17),D17-E17-F17, 0)",
+    "G18": "=IF(D18>(E18+F18),D18-E18-F18, 0)",
+    "G19": "=IF(D19>(E19+F19),D19-E19-F19, 0)",
+    "G22": "=IF(D22>(E22+F22),D22-E22-F22, 0)",
+    "G23": "=IF(D23>(E23+F23),D23-E23-F23, 0)",
+    "G24": "=IF(D24>(E24+F24),D24-E24-F24, 0)",
+    "G26": "=IF(D26>(E26+F26),D26-E26-F26, 0)",
+    "G27": "=IF(D27>(E27+F27),D27-E27-F27, 0)",
+    "G28": "=IF(D28>(E28+F28),D28-E28-F28, 0)",
+    "B61": "=B33",
+    "C61": "=SUM(F33:H33)",
+    "B62": "=B34",
+    "C62": "=SUM(F34:H34)",
+    "B63": "=B35",
+    "C63": "=SUM(F35:H35)",
+    "B64": "=B36",
+    "C64": "=SUM(F36:H36)",
+}
+STORY10B_SHIPMENT_CANONICAL_FORMULAS = {
+    "C4": '=IF(INTRO!$E$33<>0,INTRO!$E$33," ")',
+    "H4": '=IF(INTRO!$E$35<>0,INTRO!$E$35," ")',
+}
+STORY10B_FORMULA_NON_OVERLAP_WARN_CELLS = {"SUMMARY": {"C6", "H6"}}
+STORY10B_STORY9_FORMULA_OVERLAP = {
+    "SUMMARY": {
+        "G12",
+        "G13",
+        "G14",
+        "G16",
+        "G17",
+        "G18",
+        "G19",
+        "G22",
+        "G23",
+        "G24",
+        "G26",
+        "G27",
+        "G28",
+        "B61",
+        "C61",
+        "B62",
+        "C62",
+        "B63",
+        "C63",
+        "B64",
+        "C64",
+    },
+    "SHIPMENT": {"C4", "H4"},
+}
+STORY10B_FORMULA_REQUIRED_RULES = {
+    "JRSM.FORMULA.GOVERNED_FORMULA_PRESENT",
+    "JRSM.FORMULA.PROTECTED_CELL_ENFORCEMENT",
+    "JRSM.FORMULA.EDITABLE_CELL_OVERRIDE_DETECTED",
+}
 
 
 def _has_cell_address(sheet: Worksheet, cell_address: str) -> bool:
@@ -231,7 +292,27 @@ def _is_formula_value(value: Any) -> bool:
 def _normalize_formula(formula: str) -> str:
     # Normalize for deterministic comparison across spacing/case/$-anchor variants.
     normalized = re.sub(r"\s+", "", formula).upper()
-    return normalized.replace("$", "")
+    normalized = normalized.replace("$", "")
+    # Strip external workbook scoping tokens observed in submitted files, e.g. [1]INTRO!...
+    return re.sub(r"\[\d+\](?=[A-Z_][A-Z0-9_]*!)", "", normalized)
+
+
+def _to_float(value: Any) -> float | None:
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    text = str(value).strip().replace(",", "")
+    if not text:
+        return None
+    try:
+        return float(text)
+    except ValueError:
+        return None
+
+
+def _is_yes(value: Any) -> bool:
+    return _normalize_text(value) == "yes"
 
 
 def _translate_formula_to_target(*, formula: str, source_cell: str, target_cell: str) -> str:
@@ -521,6 +602,258 @@ def _evaluate_story10_summary_shipment_placeholder(
             expected=f"Sheet present and anchors addressable: {', '.join(anchor_cells)}",
             actual="ACCESS_OK",
         )
+
+
+def _story10b_formula_severity(sheet_name: str, cell_address: str) -> str:
+    warn_cells = STORY10B_FORMULA_NON_OVERLAP_WARN_CELLS.get(sheet_name, set())
+    return "warn" if cell_address in warn_cells else "error"
+
+
+def _should_suppress_story10b_formula_finding(
+    *,
+    findings: list[Finding],
+    sheet_name: str,
+    cell_address: str,
+    check_type: str,
+) -> bool:
+    if cell_address not in STORY10B_STORY9_FORMULA_OVERLAP.get(sheet_name, set()):
+        return False
+
+    expected_story9_rules = (
+        STORY10B_FORMULA_REQUIRED_RULES
+        if check_type == "required"
+        else {"JRSM.FORMULA.GOVERNED_FORMULA_MATCH"}
+    )
+    return any(
+        finding.sheet == sheet_name
+        and finding.cell == cell_address
+        and finding.rule_id in expected_story9_rules
+        for finding in findings
+    )
+
+
+def _emit_story10b_table_block_finding(
+    *,
+    findings: list[Finding],
+    sheet_name: str,
+    block_id: str,
+    severity: str,
+    missing_cells: list[str],
+    expected_cells: list[str],
+) -> None:
+    if not missing_cells:
+        return
+
+    _build_finding(
+        findings,
+        rule_id="JRSM.SUMMARY_SHIPMENT.TABLE_BLOCK_REQUIRED",
+        severity=severity,
+        message=f"{block_id} required fields are missing or invalid.",
+        recommendation="Populate required fields for this SUMMARY/SHIPMENT block and rerun validation.",
+        sheet=sheet_name,
+        cell=", ".join(missing_cells),
+        expected=", ".join([f"{sheet_name}!{cell}" for cell in expected_cells]),
+        actual=", ".join([f"{sheet_name}!{cell}" for cell in missing_cells]),
+    )
+
+
+def _evaluate_story10b_summary_table_blocks(*, sheet: Worksheet, findings: list[Finding]) -> None:
+    intervention_row_map = [(43, 12), (44, 14), (45, 16), (46, 18), (47, 22), (48, 26)]
+    for planning_row, request_row in intervention_row_map:
+        requested_value = _to_float(sheet[f"G{request_row}"].value)
+        if requested_value is None or requested_value <= 0:
+            continue
+        expected_cells = [f"C{planning_row}", f"D{planning_row}", f"G{planning_row}", f"H{planning_row}"]
+        missing_cells = [cell for cell in expected_cells if _is_blank(sheet[cell].value)]
+        _emit_story10b_table_block_finding(
+            findings=findings,
+            sheet_name="SUMMARY",
+            block_id=f"SUMMARY.BLOCK.INTERVENTION_DATES.R{planning_row}",
+            severity="warn",
+            missing_cells=missing_cells,
+            expected_cells=expected_cells,
+        )
+
+    for row in [61, 62, 63, 64]:
+        treatment_count = _to_float(sheet[f"C{row}"].value)
+        if treatment_count is None or treatment_count <= 0:
+            continue
+        expected_cells = [f"D{row}", f"E{row}", f"H{row}"]
+        missing_cells = [cell for cell in expected_cells if _is_blank(sheet[cell].value)]
+        _emit_story10b_table_block_finding(
+            findings=findings,
+            sheet_name="SUMMARY",
+            block_id=f"SUMMARY.BLOCK.FUNDING_BY_DISEASE.R{row}",
+            severity="warn",
+            missing_cells=missing_cells,
+            expected_cells=expected_cells,
+        )
+
+    contact_cells = ["B72", "C72", "E72", "G72", "H72"]
+    _emit_story10b_table_block_finding(
+        findings=findings,
+        sheet_name="SUMMARY",
+        block_id="SUMMARY.BLOCK.CONTACT_METADATA",
+        severity="warn",
+        missing_cells=[cell for cell in contact_cells if _is_blank(sheet[cell].value)],
+        expected_cells=contact_cells,
+    )
+
+    authorization_cells = ["D84", "H85"]
+    _emit_story10b_table_block_finding(
+        findings=findings,
+        sheet_name="SUMMARY",
+        block_id="SUMMARY.BLOCK.AUTHORIZATION",
+        severity="warn",
+        missing_cells=[cell for cell in authorization_cells if _is_blank(sheet[cell].value)],
+        expected_cells=authorization_cells,
+    )
+
+
+def _evaluate_story10b_shipment_table_blocks(*, sheet: Worksheet, findings: list[Finding]) -> None:
+    consignee_sets = [
+        (
+            "SHIPMENT.BLOCK.CONSIGNEE_SET_1",
+            "B8",
+            ["C9", "C11", "C12", "C14", "C15", "F9", "F11", "F12", "F14", "F15"],
+        ),
+        (
+            "SHIPMENT.BLOCK.CONSIGNEE_SET_2",
+            "B17",
+            ["C18", "C20", "C21", "C23", "C24", "F18", "F20", "F21", "F23", "F24"],
+        ),
+        (
+            "SHIPMENT.BLOCK.CONSIGNEE_SET_3",
+            "B26",
+            ["C27", "C29", "C30", "C32", "C33", "F27", "F29", "F30", "F32", "F33"],
+        ),
+    ]
+    for block_id, trigger_cell, expected_cells in consignee_sets:
+        if _is_blank(sheet[trigger_cell].value):
+            continue
+        _emit_story10b_table_block_finding(
+            findings=findings,
+            sheet_name="SHIPMENT",
+            block_id=block_id,
+            severity="error",
+            missing_cells=[cell for cell in expected_cells if _is_blank(sheet[cell].value)],
+            expected_cells=expected_cells,
+        )
+
+    import_requirement_cells = ["H38", "H40", "H42", "H43"]
+    _emit_story10b_table_block_finding(
+        findings=findings,
+        sheet_name="SHIPMENT",
+        block_id="SHIPMENT.BLOCK.IMPORT_REQUIREMENTS",
+        severity="error",
+        missing_cells=[cell for cell in import_requirement_cells if _is_blank(sheet[cell].value)],
+        expected_cells=import_requirement_cells,
+    )
+
+    if _is_yes(sheet["H38"].value):
+        expected_cells = ["G39", "H39"]
+        missing_cells = []
+        if _to_float(sheet["G39"].value) is None:
+            missing_cells.append("G39")
+        if _is_blank(sheet["H39"].value):
+            missing_cells.append("H39")
+        _emit_story10b_table_block_finding(
+            findings=findings,
+            sheet_name="SHIPMENT",
+            block_id="SHIPMENT.BLOCK.IMPORT_PERMIT_LEAD_TIME",
+            severity="error",
+            missing_cells=missing_cells,
+            expected_cells=expected_cells,
+        )
+
+    if any(_is_yes(sheet[cell].value) for cell in import_requirement_cells):
+        _emit_story10b_table_block_finding(
+            findings=findings,
+            sheet_name="SHIPMENT",
+            block_id="SHIPMENT.BLOCK.IMPORT_DOCUMENTS",
+            severity="warn",
+            missing_cells=["B44"] if _is_blank(sheet["B44"].value) else [],
+            expected_cells=["B44"],
+        )
+
+
+def _evaluate_story10b_summary_shipment_detailed(
+    *,
+    workbook: Workbook,
+    findings: list[Finding],
+) -> None:
+    if not SUMMARY_SHIPMENT_REFERENCE_DOC_PATH.exists():
+        return
+
+    _build_finding(
+        findings,
+        rule_id="JRSM.SUMMARY_SHIPMENT.REFERENCE_APPLIED",
+        severity="info",
+        message="Detailed SUMMARY/SHIPMENT reference is configured; Story 10b deterministic checks applied.",
+        recommendation="No action required.",
+        expected=str(SUMMARY_SHIPMENT_REFERENCE_DOC_PATH),
+        actual="REFERENCE_LOADED",
+    )
+
+    formula_specs: dict[str, dict[str, str]] = {
+        "SUMMARY": STORY10B_SUMMARY_CANONICAL_FORMULAS,
+        "SHIPMENT": STORY10B_SHIPMENT_CANONICAL_FORMULAS,
+    }
+    for sheet_name, canonical_by_cell in formula_specs.items():
+        if sheet_name not in workbook.sheetnames:
+            continue
+        sheet = workbook[sheet_name]
+        for cell_address, expected_formula in canonical_by_cell.items():
+            actual_value = sheet[cell_address].value
+            severity = _story10b_formula_severity(sheet_name, cell_address)
+            if not _is_formula_value(actual_value):
+                if _should_suppress_story10b_formula_finding(
+                    findings=findings,
+                    sheet_name=sheet_name,
+                    cell_address=cell_address,
+                    check_type="required",
+                ):
+                    continue
+                _build_finding(
+                    findings,
+                    rule_id=f"JRSM.{sheet_name}.FORMULA_REQUIRED",
+                    severity=severity,
+                    message=f"{sheet_name} canonical formula cell is missing a formula.",
+                    recommendation="Restore the canonical formula from template baseline for this cell.",
+                    sheet=sheet_name,
+                    cell=cell_address,
+                    expected=expected_formula,
+                    actual=_format_actual_value(actual_value),
+                )
+                continue
+
+            actual_formula = str(actual_value)
+            if _normalize_formula(actual_formula) == _normalize_formula(expected_formula):
+                continue
+            if _should_suppress_story10b_formula_finding(
+                findings=findings,
+                sheet_name=sheet_name,
+                cell_address=cell_address,
+                check_type="match",
+            ):
+                continue
+
+            _build_finding(
+                findings,
+                rule_id=f"JRSM.{sheet_name}.FORMULA_MATCH",
+                severity=severity,
+                message=f"{sheet_name} canonical formula cell differs from expected formula.",
+                recommendation="Restore the canonical formula from template baseline for this cell.",
+                sheet=sheet_name,
+                cell=cell_address,
+                expected=expected_formula,
+                actual=actual_formula,
+            )
+
+    if "SUMMARY" in workbook.sheetnames:
+        _evaluate_story10b_summary_table_blocks(sheet=workbook["SUMMARY"], findings=findings)
+    if "SHIPMENT" in workbook.sheetnames:
+        _evaluate_story10b_shipment_table_blocks(sheet=workbook["SHIPMENT"], findings=findings)
 
 
 def validate_jrsm_workbook(
@@ -1019,6 +1352,10 @@ def validate_jrsm_workbook(
             iu_end_row=iu_end_row,
         )
         _evaluate_story10_summary_shipment_placeholder(
+            workbook=workbook,
+            findings=findings,
+        )
+        _evaluate_story10b_summary_shipment_detailed(
             workbook=workbook,
             findings=findings,
         )
