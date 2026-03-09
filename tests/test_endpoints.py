@@ -8,9 +8,15 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+RUN_DEPLOYED_ENDPOINT_TESTS = os.environ.get("RUN_DEPLOYED_ENDPOINT_TESTS") == "1"
 BASE_URL = os.environ.get("TEST_API_URL", "https://espen-sql-api.openchatstudio.com")
 api_key = os.environ.get("API_KEY")
 AUTH_HEADER = {"Authorization": f"Bearer {api_key}"}
+
+pytestmark = pytest.mark.skipif(
+    not RUN_DEPLOYED_ENDPOINT_TESTS,
+    reason="Deployed endpoint smoke tests are opt-in. Set RUN_DEPLOYED_ENDPOINT_TESTS=1 to run them.",
+)
 
 
 @pytest.fixture(scope="module")

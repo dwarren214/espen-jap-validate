@@ -15,6 +15,7 @@ from espen_sql_api.jap_validation import storage  # noqa: E402
 from espen_sql_api.routers import jap_validation  # noqa: E402
 
 EXPECTED_VERSION_MARKER = "Joint request for selected PC medicines v.4.4"
+CORRUPT_WORKBOOK_BYTES_PATH = Path("tests/fixtures/jrsm/corrupt_workbook.bin")
 REQUIRED_SHEETS = [
     "INTRO",
     "COUNTRY_INFO",
@@ -137,7 +138,7 @@ def test_valid_workbook_parse_path_has_no_parse_failure(client: TestClient, auth
 
 
 def test_corrupt_workbook_bytes_produce_parse_failure_finding(client: TestClient, auth_headers):
-    body = _upload_and_validate(client, auth_headers, b"not-a-valid-xlsx-binary")
+    body = _upload_and_validate(client, auth_headers, CORRUPT_WORKBOOK_BYTES_PATH.read_bytes())
     parse_findings = [finding for finding in body["findings"] if finding["rule_id"] == "JRSM.WORKBOOK.FILE_PARSE"]
     assert parse_findings
     assert any("WORKBOOK_PARSE_FAILED" in (finding.get("actual") or "") for finding in parse_findings)
