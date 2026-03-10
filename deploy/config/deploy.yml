@@ -5,6 +5,7 @@ image: dimagi/espen
 env:
   clear:
     CAMPAIGN_DB_DIR: /code/campaign_dbs
+    JAP_UPLOAD_DIR: /code/local/jap_validation/uploads
   secret:
     - DATABASE_URL
     - API_KEY
@@ -21,6 +22,7 @@ servers:
 
 volumes:
   - "/home/ocs/campaign_dbs:/code/campaign_dbs"
+  - "/home/ocs/jap_validation:/code/local/jap_validation"
 
 # To use a non-root user see https://kamal-deploy.org/docs/configuration/ssh/#the-ssh-user
 ssh:
