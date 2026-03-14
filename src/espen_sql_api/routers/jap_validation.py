@@ -189,6 +189,7 @@ def validate_jrsm(
     correlation_id = get_or_create_correlation_id(request)
     endpoint = "/validate/jrsm"
     metadata = get_upload_metadata(payload.file_reference)
+    request_metadata = payload.metadata or {}
 
     try:
         cleaned_count = cleanup_expired_uploads()
@@ -271,9 +272,15 @@ def validate_jrsm(
             year_for_request_of_medicine=payload.year_for_request_of_medicine,
             metadata=payload.metadata,
         )
+        findings_mode_raw = request_metadata.get("findings_mode", "exceptions_only")
+        findings_mode = "full" if str(findings_mode_raw).strip().casefold() == "full" else "exceptions_only"
+        findings_cap_raw = request_metadata.get("findings_cap")
+        findings_cap = findings_cap_raw if isinstance(findings_cap_raw, int) and findings_cap_raw > 0 else None
         validation_response = build_validation_response(
             file_reference=payload.file_reference,
             validation_result=validation_result,
+            findings_mode=findings_mode,
+            findings_cap=findings_cap,
         )
     except Exception:
         logger.exception(

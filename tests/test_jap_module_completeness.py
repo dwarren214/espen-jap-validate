@@ -219,3 +219,23 @@ def test_module_checks_apply_only_to_active_rows_not_headers(tmp_path: Path):
     )
     alb_findings = [f for f in result.findings if f.rule_id == "JRSM.ALB_MBD.REQUIRED_COLUMNS_G_J_Q_T"]
     assert not alb_findings
+
+
+def test_all_blank_required_column_emits_aggregate_with_header_label(tmp_path: Path):
+    workbook_path = tmp_path / "all_blank_column.xlsx"
+    blank_cells = {f"ALB_MBD!G{row}" for row in (10, 11)}
+    _build_workbook(
+        workbook_path,
+        endemicity_values={"E37": "Endemic", "E39": "Non-endemic", "E41": "Non-endemic", "E43": "Non-endemic"},
+        n_value=2,
+        blank_cells=blank_cells,
+    )
+    result = validate_jrsm_workbook(
+        workbook_path=workbook_path,
+        country="Rwanda",
+        year_for_request_of_medicine=2026,
+    )
+    alb_findings = [f for f in result.findings if f.rule_id == "JRSM.ALB_MBD.REQUIRED_COLUMNS_G_J_Q_T"]
+    aggregate_finding = next(finding for finding in alb_findings if finding.cell == "G10:G11")
+    assert "Target population for STH / PreSAC / Rounds" in aggregate_finding.message
+    assert not any(finding.cell in {"G10", "G11"} for finding in alb_findings)

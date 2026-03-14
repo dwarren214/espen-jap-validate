@@ -88,6 +88,24 @@ MODULE_COMPLETENESS_SPECS = [
         "JRSM.IVM.NOT_APPLICABLE",
     ),
 ]
+COLUMN_LABEL_OVERRIDES = {
+    "ALB_MBD": {
+        "G": "Target population for STH / PreSAC / Rounds",
+        "J": "WRA / Rounds",
+        "Q": "Remaining in stock (STH)",
+        "T": "Remaining in stock",
+    },
+    "PZQ": {
+        "I": "Hot spots / Planned",
+        "J": "Population",
+        "K": "Previous year MDA / Rounds",
+        "L": "Age groups",
+        "Q": "Remaining in stock",
+    },
+    "IVM": {
+        "M": "Remaining in stock",
+    },
+}
 SUMMARY_SHIPMENT_REFERENCE_DOC_PATH = Path(__file__).resolve(strict=True).parents[4] / "docs/jrsm_summary_shipment_validation_reference.md"
 SUMMARY_SHIPMENT_ANCHOR_CELLS = {
     "SUMMARY": ["A1", "G12", "B61", "C61"],
@@ -243,8 +261,59 @@ def _is_blank(value: Any) -> bool:
 
 
 def _header_text(sheet: Worksheet, column_letter: str) -> str:
-    values = [sheet[f"{column_letter}{row}"].value for row in (6, 7, 8)]
-    return " ".join(str(value).strip() for value in values if not _is_blank(value))
+    values: list[str] = []
+    for row in (6, 7, 8):
+        cell_address = f"{column_letter}{row}"
+        value = sheet[cell_address].value
+        if _is_blank(value):
+            for merged_range in sheet.merged_cells.ranges:
+                if cell_address not in merged_range:
+                    continue
+                value = sheet[merged_range.start_cell.coordinate].value
+                break
+        if _is_blank(value):
+            continue
+        text_value = str(value).strip()
+        if text_value in values:
+            continue
+        values.append(text_value)
+    return " / ".join(values)
+
+
+def _column_label(sheet: Worksheet, column_letter: str) -> str:
+    override = COLUMN_LABEL_OVERRIDES.get(sheet.title, {}).get(column_letter)
+    if override:
+        return override
+    return _header_text(sheet, column_letter) or column_letter
+
+
+def _format_column_descriptor(sheet: Worksheet, columns: list[str]) -> str:
+    if len(columns) == 1:
+        column = columns[0]
+        return f"column {column} ({_column_label(sheet, column)})"
+
+    labels = ", ".join(_column_label(sheet, column) for column in columns)
+    return f"columns {columns[0]}-{columns[-1]} ({labels})"
+
+
+def _format_grouped_cell_range(columns: list[str], start_row: int, end_row: int) -> str:
+    if len(columns) == 1:
+        return f"{columns[0]}{start_row}:{columns[0]}{end_row}"
+    return f"{columns[0]}{start_row}:{columns[-1]}{end_row}"
+
+
+def _group_contiguous_columns(columns: list[str]) -> list[list[str]]:
+    if not columns:
+        return []
+
+    groups: list[list[str]] = [[columns[0]]]
+    for column in columns[1:]:
+        previous = groups[-1][-1]
+        if column_index_from_string(column) == column_index_from_string(previous) + 1:
+            groups[-1].append(column)
+        else:
+            groups.append([column])
+    return groups
 
 
 def _is_output_column_expected(
@@ -1137,8 +1206,14 @@ def validate_jrsm_workbook(
                 "IVM+": has_ida if has_ida_known else False,
                 "ALB_MBD": has_lf or has_sth,
                 "PZQ": has_sch,
-                "DATA_POLICY": False,
             }
+        )
+        actual_sheet_visibility_text = ", ".join(
+            [
+                f"{sheet}={workbook[sheet].sheet_state}"
+                for sheet in MODULE_VISIBILITY_SHEETS
+                if sheet in workbook.sheetnames
+            ]
         )
         expected_visible_module_count = sum(1 for sheet_name in MODULE_VISIBILITY_SHEETS if expected_sheet_visibility[sheet_name])
         _build_finding(
@@ -1150,10 +1225,7 @@ def validate_jrsm_workbook(
             expected=", ".join(
                 [f"{sheet}={'visible' if expected_sheet_visibility[sheet] else 'hidden'}" for sheet in MODULE_VISIBILITY_SHEETS]
             ),
-            actual=(
-                f"has_lf={has_lf}, has_oncho={has_oncho}, has_sth={has_sth}, "
-                f"has_sch={has_sch}, has_ida={has_ida if has_ida_known else 'unknown'}"
-            ),
+            actual=actual_sheet_visibility_text,
         )
 
         for sheet_name, expected_visible in expected_sheet_visibility.items():
@@ -1181,6 +1253,13 @@ def validate_jrsm_workbook(
             "has_sth": has_sth,
             "has_sch": has_sch,
             "has_ida": has_ida if has_ida_known else None,
+            "visibility_driver_flags": {
+                "has_lf": has_lf,
+                "has_oncho": has_oncho,
+                "has_sth": has_sth,
+                "has_sch": has_sch,
+                "has_ida": has_ida if has_ida_known else None,
+            },
             "n": n_value,
             "iu_window_start_row": iu_start_row if n_value is not None else None,
             "iu_window_end_row": iu_end_row,
@@ -1266,34 +1345,34 @@ def validate_jrsm_workbook(
                     continue
                 required_output_columns.append(column)
 
-                blank_count = 0
-                for row in active_rows:
-                    cell_address = f"{column}{row}"
-                    if _is_blank(country_info_sheet[cell_address].value):
-                        blank_count += 1
-                        _build_finding(
-                            findings,
-                            rule_id="JRSM.COUNTRY_INFO.REQUIRED_OUTPUT_COLUMNS_V_TO_AD",
-                            severity="error",
-                            message="COUNTRY_INFO required output column is blank for active IU row.",
-                            recommendation="Populate required COUNTRY_INFO output columns V:AD for active IU rows when header-populated and expected.",
-                            sheet="COUNTRY_INFO",
-                            cell=cell_address,
-                            expected="Non-empty value",
-                            actual="BLANK_OR_MISSING",
-                        )
-
-                if blank_count == len(active_rows):
+                blank_rows = [row for row in active_rows if _is_blank(country_info_sheet[f"{column}{row}"].value)]
+                column_descriptor = f"column {column} ({_column_label(country_info_sheet, column)})"
+                if len(blank_rows) == len(active_rows):
                     _build_finding(
                         findings,
                         rule_id="JRSM.COUNTRY_INFO.REQUIRED_OUTPUT_COLUMNS_V_TO_AD",
                         severity="error",
-                        message=f"COUNTRY_INFO required output column {column} is systematically blank across active IU rows.",
-                        recommendation="Populate the required output column or verify whether this header should be present for current configuration.",
+                        message=f"COUNTRY_INFO {column_descriptor} is blank across active IU rows {iu_start_row}:{iu_end_row}.",
+                        recommendation="Review whether this header is intentionally blank for the current configuration; otherwise populate it and rerun validation.",
                         sheet="COUNTRY_INFO",
                         cell=f"{column}{iu_start_row}:{column}{iu_end_row}",
                         expected="At least one non-empty value in active IU window",
                         actual="SYSTEMATICALLY_BLANK",
+                    )
+                    continue
+
+                for row in blank_rows:
+                    cell_address = f"{column}{row}"
+                    _build_finding(
+                        findings,
+                        rule_id="JRSM.COUNTRY_INFO.REQUIRED_OUTPUT_COLUMNS_V_TO_AD",
+                        severity="error",
+                        message=f"COUNTRY_INFO {column_descriptor} is blank for active IU row {row}.",
+                        recommendation="Populate required COUNTRY_INFO output cells for active IU rows when the column is expected for the current configuration.",
+                        sheet="COUNTRY_INFO",
+                        cell=cell_address,
+                        expected="Non-empty value",
+                        actual="BLANK_OR_MISSING",
                     )
 
             context["country_info_required_output_columns"] = required_output_columns
@@ -1328,21 +1407,49 @@ def validate_jrsm_workbook(
                         )
                     continue
 
-                for row in active_rows:
-                    for column in required_columns:
+                blank_rows_by_column = {
+                    column: [row for row in active_rows if _is_blank(module_sheet[f"{column}{row}"].value)]
+                    for column in required_columns
+                }
+                all_blank_columns = [
+                    column for column in required_columns if len(blank_rows_by_column[column]) == len(active_rows)
+                ]
+                for grouped_columns in _group_contiguous_columns(all_blank_columns):
+                    _build_finding(
+                        findings,
+                        rule_id=required_rule_id,
+                        severity="error",
+                        message=(
+                            f"{module_sheet_name} {_format_column_descriptor(module_sheet, grouped_columns)} "
+                            f"are blank across active IU rows {iu_start_row}:{iu_end_row}."
+                            if len(grouped_columns) > 1
+                            else f"{module_sheet_name} {_format_column_descriptor(module_sheet, grouped_columns)} "
+                            f"is blank across active IU rows {iu_start_row}:{iu_end_row}."
+                        ),
+                        recommendation=f"Review whether these required module columns are intentionally blank; otherwise populate them and rerun validation for {module_sheet_name}.",
+                        sheet=module_sheet_name,
+                        cell=_format_grouped_cell_range(grouped_columns, iu_start_row, iu_end_row),
+                        expected="At least one non-empty value in active IU window",
+                        actual="SYSTEMATICALLY_BLANK",
+                    )
+
+                for column in required_columns:
+                    if column in all_blank_columns:
+                        continue
+                    column_descriptor = f"column {column} ({_column_label(module_sheet, column)})"
+                    for row in blank_rows_by_column[column]:
                         cell_address = f"{column}{row}"
-                        if _is_blank(module_sheet[cell_address].value):
-                            _build_finding(
-                                findings,
-                                rule_id=required_rule_id,
-                                severity="error",
-                                message=f"{module_sheet_name} active IU row is missing required module value.",
-                                recommendation=f"Populate required columns {', '.join(required_columns)} for active IU rows in {module_sheet_name}.",
-                                sheet=module_sheet_name,
-                                cell=cell_address,
-                                expected="Non-empty value",
-                                actual="BLANK_OR_MISSING",
-                            )
+                        _build_finding(
+                            findings,
+                            rule_id=required_rule_id,
+                            severity="error",
+                            message=f"{module_sheet_name} {column_descriptor} is blank for active IU row {row}.",
+                            recommendation=f"Populate required module cells in {module_sheet_name} and rerun validation.",
+                            sheet=module_sheet_name,
+                            cell=cell_address,
+                            expected="Non-empty value",
+                            actual="BLANK_OR_MISSING",
+                        )
 
         # Story 9: submitter-day formula governance checks.
         _evaluate_story9_formula_governance(

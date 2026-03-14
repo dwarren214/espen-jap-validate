@@ -106,7 +106,13 @@ def _build_workbook_bytes(
     return buffer.getvalue()
 
 
-def _upload_and_validate(client: TestClient, auth_headers: dict[str, str], workbook_bytes: bytes) -> dict:
+def _upload_and_validate(
+    client: TestClient,
+    auth_headers: dict[str, str],
+    workbook_bytes: bytes,
+    *,
+    metadata: dict | None = None,
+) -> dict:
     upload_response = client.post(
         "/upload",
         headers=auth_headers,
@@ -122,6 +128,7 @@ def _upload_and_validate(client: TestClient, auth_headers: dict[str, str], workb
             "file_reference": file_reference,
             "country": "Rwanda",
             "year_for_request_of_medicine": 2026,
+            "metadata": metadata,
         },
     )
     assert validate_response.status_code == 200
@@ -161,12 +168,22 @@ def test_missing_required_cell_produces_required_cell_finding(client: TestClient
 
 
 def test_version_marker_emits_info_or_warn_signal(client: TestClient, auth_headers):
-    valid_body = _upload_and_validate(client, auth_headers, _build_workbook_bytes(version_marker=EXPECTED_VERSION_MARKER))
+    valid_body = _upload_and_validate(
+        client,
+        auth_headers,
+        _build_workbook_bytes(version_marker=EXPECTED_VERSION_MARKER),
+        metadata={"findings_mode": "full"},
+    )
     valid_marker_findings = [finding for finding in valid_body["findings"] if finding["rule_id"] == "JRSM.TEMPLATE.VERSION_MARKER"]
     assert valid_marker_findings
     assert any(finding["severity"] == "info" for finding in valid_marker_findings)
 
-    invalid_body = _upload_and_validate(client, auth_headers, _build_workbook_bytes(version_marker="Unexpected marker value"))
+    invalid_body = _upload_and_validate(
+        client,
+        auth_headers,
+        _build_workbook_bytes(version_marker="Unexpected marker value"),
+        metadata={"findings_mode": "full"},
+    )
     invalid_marker_findings = [finding for finding in invalid_body["findings"] if finding["rule_id"] == "JRSM.TEMPLATE.VERSION_MARKER"]
     assert invalid_marker_findings
     assert any(finding["severity"] == "warn" for finding in invalid_marker_findings)

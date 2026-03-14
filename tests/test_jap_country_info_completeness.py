@@ -207,7 +207,8 @@ def test_required_output_columns_v_to_ad_checks_and_aggregate(tmp_path: Path):
         if finding.rule_id == "JRSM.COUNTRY_INFO.REQUIRED_OUTPUT_COLUMNS_V_TO_AD"
     ]
     assert any(finding.cell == "W11" for finding in output_findings)
-    assert any(finding.cell == "V10:V11" for finding in output_findings)
+    aggregate_finding = next(finding for finding in output_findings if finding.cell == "V10:V11")
+    assert "Output V" in aggregate_finding.message
 
 
 def test_extra_columns_ae_af_are_tolerated(tmp_path: Path):

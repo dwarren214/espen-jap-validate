@@ -181,7 +181,7 @@ def test_ida_detection_uses_only_active_iu_rows(tmp_path: Path):
     assert ida_findings[-1].actual == "IDA_NOT_DETECTED"
 
 
-def test_visibility_mismatch_and_data_policy_visible_warn(tmp_path: Path):
+def test_visibility_mismatch_excludes_data_policy_noise(tmp_path: Path):
     workbook_path = tmp_path / "visibility_mismatch.xlsx"
     _build_workbook(
         workbook_path,
@@ -205,7 +205,8 @@ def test_visibility_mismatch_and_data_policy_visible_warn(tmp_path: Path):
         for finding in result.findings
         if finding.rule_id == "JRSM.ENDEMICITY.ACTUAL_SHEET_STATE_MISMATCH"
     }
-    assert {"DEC", "IVM", "DATA_POLICY"} <= mismatch_sheets
+    assert {"DEC", "IVM"} <= mismatch_sheets
+    assert "DATA_POLICY" not in mismatch_sheets
 
 
 def test_n_validation_and_iu_window_derivation(tmp_path: Path):
