@@ -23,6 +23,7 @@ ERROR_CODE_MESSAGES = {
     "FILE_TOO_LARGE": "The uploaded workbook exceeds the maximum allowed size.",
     "FILE_REFERENCE_NOT_FOUND": "The uploaded file reference could not be found.",
     "FILE_REFERENCE_EXPIRED": "The uploaded file reference has expired. Please re-upload the workbook.",
+    "UNSUPPORTED_FORM_TYPE": "This endpoint does not support the requested form type.",
     "REQUEST_VALIDATION_ERROR": "The request body did not match the expected schema.",
     "WORKBOOK_PARSE_FAILED": "The workbook could not be parsed.",
     "REQUIRED_SHEET_MISSING": "The workbook is missing a required sheet.",

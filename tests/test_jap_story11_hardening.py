@@ -139,6 +139,7 @@ def test_validate_unknown_reference_returns_structured_error_and_generated_reque
         headers=auth_headers,
         json={
             "file_reference": "upl_missing_reference",
+            "form_type": "jrsm",
             "country": "Rwanda",
             "year_for_request_of_medicine": 2026,
         },
@@ -202,6 +203,7 @@ def test_validate_expired_reference_returns_structured_error_and_logs_failure(
         headers={**auth_headers, "X-Request-ID": request_id},
         json={
             "file_reference": file_reference,
+            "form_type": "jrsm",
             "country": "Rwanda",
             "year_for_request_of_medicine": 2026,
         },
@@ -254,6 +256,7 @@ def test_success_responses_include_request_id_and_validation_logging(
         headers={**auth_headers, "X-Request-ID": request_id},
         json={
             "file_reference": file_reference,
+            "form_type": "jrsm",
             "country": "Rwanda",
             "year_for_request_of_medicine": 2026,
         },
@@ -272,3 +275,28 @@ def test_success_responses_include_request_id_and_validation_logging(
         and f"file_reference={file_reference}" in record.message
         for record in caplog.records
     )
+
+
+def test_validate_rejects_unsupported_form_type_with_structured_error(client: TestClient, auth_headers):
+    file_reference = _upload_valid_workbook(client, auth_headers)
+    response = client.post(
+        "/validate/jrsm",
+        headers=auth_headers,
+        json={
+            "file_reference": file_reference,
+            "form_type": "epirf",
+            "country": "Rwanda",
+            "year_for_request_of_medicine": 2026,
+        },
+    )
+
+    body = response.json()
+    assert response.status_code == 400
+    assert body["error_code"] == "UNSUPPORTED_FORM_TYPE"
+    assert body["message"] == "This endpoint does not support the requested form type."
+    assert body["details"] == {
+        "form_type": "epirf",
+        "supported_form_types": ["jrsm"],
+    }
+    assert body["correlation_id"].startswith("req_")
+    assert response.headers["X-Request-ID"] == body["correlation_id"]

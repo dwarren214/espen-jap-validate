@@ -106,7 +106,16 @@ COLUMN_LABEL_OVERRIDES = {
         "M": "Remaining in stock",
     },
 }
-SUMMARY_SHIPMENT_REFERENCE_DOC_PATH = Path(__file__).resolve(strict=True).parents[4] / "docs/jrsm_summary_shipment_validation_reference.md"
+def _project_root_for_module_path(module_path: Path) -> Path:
+    package_root = module_path.parent.parent.parent
+    workspace_root = package_root.parent
+    return workspace_root.parent if workspace_root.name == "src" else workspace_root
+
+
+SUMMARY_SHIPMENT_REFERENCE_DOC_PATH = (
+    _project_root_for_module_path(Path(__file__).resolve(strict=True))
+    / "docs/jrsm_summary_shipment_validation_reference.md"
+)
 SUMMARY_SHIPMENT_ANCHOR_CELLS = {
     "SUMMARY": ["A1", "G12", "B61", "C61"],
     "SHIPMENT": ["A1", "C4", "H4"],
@@ -606,7 +615,8 @@ def _evaluate_story10_summary_shipment_placeholder(
     workbook: Workbook,
     findings: list[Finding],
 ) -> None:
-    if not SUMMARY_SHIPMENT_REFERENCE_DOC_PATH.exists():
+    reference_is_configured = SUMMARY_SHIPMENT_REFERENCE_DOC_PATH.exists()
+    if not reference_is_configured:
         _build_finding(
             findings,
             rule_id="JRSM.SUMMARY_SHIPMENT.SPEC_NOT_CONFIGURED",
@@ -665,8 +675,16 @@ def _evaluate_story10_summary_shipment_placeholder(
             findings,
             rule_id="JRSM.SUMMARY_SHIPMENT.BASIC_ACCESS_CHECK",
             severity="info",
-            message=f"{sheet_name} basic-access placeholder checks passed.",
-            recommendation="No action required until detailed SUMMARY/SHIPMENT rule reference is configured.",
+            message=(
+                f"{sheet_name} basic-access checks passed."
+                if reference_is_configured
+                else f"{sheet_name} basic-access placeholder checks passed."
+            ),
+            recommendation=(
+                "No action required."
+                if reference_is_configured
+                else "No action required until detailed SUMMARY/SHIPMENT rule reference is configured."
+            ),
             sheet=sheet_name,
             expected=f"Sheet present and anchors addressable: {', '.join(anchor_cells)}",
             actual="ACCESS_OK",
@@ -930,10 +948,11 @@ def validate_jrsm_workbook(
     workbook_path: Path,
     country: str,
     year_for_request_of_medicine: int,
-    metadata: dict[str, Any] | None = None,
+    form_type: str = "jrsm",
+    form_variation: str = "generic",
 ) -> ValidationEngineResult:
     """Run Story 4 workbook parsing + template conformity checks."""
-    _ = (country, year_for_request_of_medicine, metadata)
+    _ = (country, year_for_request_of_medicine, form_type, form_variation)
     findings: list[Finding] = []
     context: dict[str, Any] = {}
 

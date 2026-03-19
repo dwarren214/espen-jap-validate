@@ -30,10 +30,15 @@ class UploadMetadata(UploadResponse):
 class ValidateJRSMRequest(BaseModel):
     """Request contract for POST /validate/jrsm."""
 
+    model_config = ConfigDict(extra="forbid")
+
     file_reference: str
+    form_type: Literal["jrsm", "jrf", "epirf"]
+    form_variation: Literal["generic", "loa"] = "generic"
     country: str
     year_for_request_of_medicine: int
-    metadata: dict[str, Any] | None = None
+    findings_mode: Literal["exceptions_only", "full"] = "exceptions_only"
+    findings_cap: int | None = Field(default=None, gt=0)
 
 
 class ExecutiveSummary(BaseModel):

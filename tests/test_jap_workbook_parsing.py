@@ -111,7 +111,8 @@ def _upload_and_validate(
     auth_headers: dict[str, str],
     workbook_bytes: bytes,
     *,
-    metadata: dict | None = None,
+    form_variation: str | None = None,
+    findings_mode: str = "exceptions_only",
 ) -> dict:
     upload_response = client.post(
         "/upload",
@@ -121,15 +122,20 @@ def _upload_and_validate(
     assert upload_response.status_code == 200
     file_reference = upload_response.json()["file_reference"]
 
+    payload = {
+        "file_reference": file_reference,
+        "form_type": "jrsm",
+        "country": "Rwanda",
+        "year_for_request_of_medicine": 2026,
+        "findings_mode": findings_mode,
+    }
+    if form_variation is not None:
+        payload["form_variation"] = form_variation
+
     validate_response = client.post(
         "/validate/jrsm",
         headers=auth_headers,
-        json={
-            "file_reference": file_reference,
-            "country": "Rwanda",
-            "year_for_request_of_medicine": 2026,
-            "metadata": metadata,
-        },
+        json=payload,
     )
     assert validate_response.status_code == 200
     return validate_response.json()
@@ -172,7 +178,7 @@ def test_version_marker_emits_info_or_warn_signal(client: TestClient, auth_heade
         client,
         auth_headers,
         _build_workbook_bytes(version_marker=EXPECTED_VERSION_MARKER),
-        metadata={"findings_mode": "full"},
+        findings_mode="full",
     )
     valid_marker_findings = [finding for finding in valid_body["findings"] if finding["rule_id"] == "JRSM.TEMPLATE.VERSION_MARKER"]
     assert valid_marker_findings
@@ -182,7 +188,7 @@ def test_version_marker_emits_info_or_warn_signal(client: TestClient, auth_heade
         client,
         auth_headers,
         _build_workbook_bytes(version_marker="Unexpected marker value"),
-        metadata={"findings_mode": "full"},
+        findings_mode="full",
     )
     invalid_marker_findings = [finding for finding in invalid_body["findings"] if finding["rule_id"] == "JRSM.TEMPLATE.VERSION_MARKER"]
     assert invalid_marker_findings

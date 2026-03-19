@@ -32,6 +32,20 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["jap_validation"], route_class=JAPValidationRoute)
 
 ALLOWED_UPLOAD_EXTENSIONS = {".xlsx", ".xlsm"}
+SUPPORTED_VALIDATE_JRSM_FORM_TYPES = {"jrsm"}
+
+
+def _dispatch_form_validation(payload: ValidateJRSMRequest, workbook_path: Path):
+    """Route a validated request to the form-specific validator."""
+    if payload.form_type == "jrsm":
+        return validate_jrsm_workbook(
+            workbook_path=workbook_path,
+            country=payload.country,
+            year_for_request_of_medicine=payload.year_for_request_of_medicine,
+            form_type=payload.form_type,
+            form_variation=payload.form_variation,
+        )
+    raise ValueError(f"Unsupported form_type for /validate/jrsm: {payload.form_type}")
 
 
 @router.post("/upload", dependencies=[Depends(api_key_auth)], response_model=UploadResponse)
@@ -189,7 +203,6 @@ def validate_jrsm(
     correlation_id = get_or_create_correlation_id(request)
     endpoint = "/validate/jrsm"
     metadata = get_upload_metadata(payload.file_reference)
-    request_metadata = payload.metadata or {}
 
     try:
         cleaned_count = cleanup_expired_uploads()
@@ -265,22 +278,35 @@ def validate_jrsm(
             details={"file_reference": payload.file_reference},
         )
 
-    try:
-        validation_result = validate_jrsm_workbook(
-            workbook_path=workbook_path,
-            country=payload.country,
-            year_for_request_of_medicine=payload.year_for_request_of_medicine,
-            metadata=payload.metadata,
+    if payload.form_type not in SUPPORTED_VALIDATE_JRSM_FORM_TYPES:
+        log_jap_event(
+            logger,
+            event="jap_validate_failed",
+            correlation_id=correlation_id,
+            endpoint=endpoint,
+            level=logging.WARNING,
+            error_code="UNSUPPORTED_FORM_TYPE",
+            duration_ms=duration_ms(started_at),
+            file_reference=payload.file_reference,
+            form_type=payload.form_type,
         )
-        findings_mode_raw = request_metadata.get("findings_mode", "exceptions_only")
-        findings_mode = "full" if str(findings_mode_raw).strip().casefold() == "full" else "exceptions_only"
-        findings_cap_raw = request_metadata.get("findings_cap")
-        findings_cap = findings_cap_raw if isinstance(findings_cap_raw, int) and findings_cap_raw > 0 else None
+        return error_response(
+            status_code=400,
+            error_code="UNSUPPORTED_FORM_TYPE",
+            correlation_id=correlation_id,
+            details={
+                "form_type": payload.form_type,
+                "supported_form_types": sorted(SUPPORTED_VALIDATE_JRSM_FORM_TYPES),
+            },
+        )
+
+    try:
+        validation_result = _dispatch_form_validation(payload, workbook_path)
         validation_response = build_validation_response(
             file_reference=payload.file_reference,
             validation_result=validation_result,
-            findings_mode=findings_mode,
-            findings_cap=findings_cap,
+            findings_mode=payload.findings_mode,
+            findings_cap=payload.findings_cap,
         )
     except Exception:
         logger.exception(

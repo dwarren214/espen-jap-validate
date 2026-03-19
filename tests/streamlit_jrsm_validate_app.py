@@ -18,8 +18,8 @@ SRC_ROOT = PROJECT_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-from espen_sql_api.jap_validation.response_builder import build_validation_response
-from espen_sql_api.jap_validation.validators.jrsm import validate_jrsm_workbook
+from espen_sql_api.jap_validation.response_builder import build_validation_response  # noqa: E402
+from espen_sql_api.jap_validation.validators.jrsm import validate_jrsm_workbook  # noqa: E402
 
 
 def _save_uploaded_workbook(uploaded_file) -> Path:
@@ -43,6 +43,7 @@ def main() -> None:
         st.header("Inputs")
         country = st.text_input("Country", value="Rwanda")
         year = st.number_input("Year for request of medicine", min_value=1900, max_value=2100, value=2026, step=1)
+        form_variation = st.selectbox("Form variation", options=["generic", "loa"], index=0)
         findings_mode = st.selectbox("Findings mode", options=["exceptions_only", "full"], index=0)
         findings_cap_enabled = st.checkbox("Apply findings cap", value=False)
         findings_cap = st.number_input("Findings cap", min_value=1, max_value=5000, value=100, step=1, disabled=not findings_cap_enabled)
@@ -65,7 +66,8 @@ def main() -> None:
                 workbook_path=temp_path,
                 country=country,
                 year_for_request_of_medicine=int(year),
-                metadata={"source": "streamlit_local"},
+                form_type="jrsm",
+                form_variation=form_variation,
             )
             response = build_validation_response(
                 file_reference=f"local::{workbook.name}",

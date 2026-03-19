@@ -127,6 +127,7 @@ def _upload_and_validate(
         headers=auth_headers,
         json={
             "file_reference": file_reference,
+            "form_type": "jrsm",
             "country": request_country,
             "year_for_request_of_medicine": request_year,
         },
