@@ -36,6 +36,9 @@ def test_build_validation_response_defaults_to_exception_only_mode():
     assert len(response.findings) == 1
     assert response.findings[0].rule_id == "JRSM.COUNTRY_INFO.REQUIRED_OUTPUT_COLUMNS_V_TO_AD"
     assert response.executive_summary.info_count == 0
+    assert response.sheet_summaries
+    assert next(summary for summary in response.sheet_summaries if summary.sheet == "COUNTRY_INFO").status == "issues_found"
+    assert next(summary for summary in response.sheet_summaries if summary.sheet == "INTRO").status == "passed"
 
 
 def test_build_validation_response_full_mode_keeps_info_findings():
@@ -71,6 +74,29 @@ def test_build_validation_response_full_mode_keeps_info_findings():
 
     assert len(response.findings) == 2
     assert response.executive_summary.info_count == 1
+    assert next(summary for summary in response.sheet_summaries if summary.sheet == "COUNTRY_INFO").error_count == 1
+
+
+def test_build_validation_response_parse_failure_marks_sheets_not_evaluated():
+    result = ValidationEngineResult(
+        validation_outcome="fail",
+        findings=[
+            Finding(
+                issue_id="F-0001",
+                rule_id="JRSM.WORKBOOK.FILE_PARSE",
+                severity="error",
+                message="Workbook parse failed.",
+                recommendation="Upload a valid workbook.",
+                actual="WORKBOOK_PARSE_FAILED: bad zip",
+            )
+        ],
+    )
+
+    response = build_validation_response(file_reference="upl_test", validation_result=result)
+
+    assert response.sheet_summaries
+    assert all(summary.status == "not_evaluated" for summary in response.sheet_summaries)
+    assert all(summary.error_count == 0 and summary.warn_count == 0 for summary in response.sheet_summaries)
 
 
 def test_rwanda_workbook_exception_first_output_is_contextualized_without_default_truncation():

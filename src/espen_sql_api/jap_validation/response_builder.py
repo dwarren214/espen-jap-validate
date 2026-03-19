@@ -4,7 +4,15 @@ from __future__ import annotations
 
 from uuid import uuid4
 
-from .models import ExecutiveSummary, Finding, ResponseTextBlock, ValidateJRSMResponse, ValidationEngineResult
+from .models import (
+    ExecutiveSummary,
+    Finding,
+    ResponseTextBlock,
+    SheetValidationSummary,
+    ValidateJRSMResponse,
+    ValidationEngineResult,
+)
+from .validators.jrsm import REQUIRED_SHEETS
 
 ROUTINE_INFO_RULE_IDS = {
     "JRSM.TEMPLATE.SHEET_SET",
@@ -114,6 +122,56 @@ def _build_text_blocks(findings: list[Finding], summary: ExecutiveSummary) -> li
     ]
 
 
+def _parse_missing_required_sheets(findings: list[Finding]) -> set[str]:
+    missing_sheets: set[str] = set()
+    for finding in findings:
+        if finding.rule_id != "JRSM.WORKBOOK.REQUIRED_SHEETS" or not finding.actual:
+            continue
+        missing_sheets.update(sheet_name.strip() for sheet_name in finding.actual.split(",") if sheet_name.strip())
+    return missing_sheets
+
+
+def _build_sheet_summaries(findings: list[Finding]) -> list[SheetValidationSummary]:
+    if any(finding.rule_id == "JRSM.WORKBOOK.FILE_PARSE" and finding.severity == "error" for finding in findings):
+        return [
+            SheetValidationSummary(sheet=sheet_name, status="not_evaluated", error_count=0, warn_count=0)
+            for sheet_name in REQUIRED_SHEETS
+        ]
+
+    counts_by_sheet = {
+        sheet_name: {"error_count": 0, "warn_count": 0}
+        for sheet_name in REQUIRED_SHEETS
+    }
+    missing_required_sheets = _parse_missing_required_sheets(findings)
+
+    for missing_sheet in missing_required_sheets:
+        if missing_sheet in counts_by_sheet:
+            counts_by_sheet[missing_sheet]["error_count"] = max(counts_by_sheet[missing_sheet]["error_count"], 1)
+
+    for finding in findings:
+        if finding.sheet not in counts_by_sheet:
+            continue
+        if finding.severity == "error":
+            counts_by_sheet[finding.sheet]["error_count"] += 1
+        elif finding.severity == "warn":
+            counts_by_sheet[finding.sheet]["warn_count"] += 1
+
+    sheet_summaries: list[SheetValidationSummary] = []
+    for sheet_name in REQUIRED_SHEETS:
+        error_count = counts_by_sheet[sheet_name]["error_count"]
+        warn_count = counts_by_sheet[sheet_name]["warn_count"]
+        status = "issues_found" if error_count or warn_count else "passed"
+        sheet_summaries.append(
+            SheetValidationSummary(
+                sheet=sheet_name,
+                status=status,
+                error_count=error_count,
+                warn_count=warn_count,
+            )
+        )
+    return sheet_summaries
+
+
 def build_validation_response(
     *,
     file_reference: str,
@@ -138,6 +196,7 @@ def build_validation_response(
         validation_outcome=validation_result.validation_outcome,
         summary_text=_build_summary_text(summary),
         executive_summary=summary,
+        sheet_summaries=_build_sheet_summaries(validation_result.findings),
         findings=findings,
         response_text_blocks=_build_text_blocks(filtered_findings, summary),
         findings_truncated=True if truncated else None,

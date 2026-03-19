@@ -68,6 +68,15 @@ class ResponseTextBlock(BaseModel):
     body: str
 
 
+class SheetValidationSummary(BaseModel):
+    """High-level per-sheet validation rollup."""
+
+    sheet: str
+    status: Literal["passed", "issues_found", "not_evaluated"]
+    error_count: int
+    warn_count: int
+
+
 class ValidateJRSMResponse(BaseModel):
     """Response envelope for POST /validate/jrsm."""
 
@@ -77,6 +86,7 @@ class ValidateJRSMResponse(BaseModel):
     validation_outcome: str
     summary_text: str
     executive_summary: ExecutiveSummary
+    sheet_summaries: list[SheetValidationSummary] = Field(default_factory=list)
     findings: list[Finding]
     response_text_blocks: list[ResponseTextBlock]
     findings_truncated: bool | None = None

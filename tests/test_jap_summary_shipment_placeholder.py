@@ -95,3 +95,13 @@ def test_normal_workbook_emits_basic_access_pass_findings(tmp_path: Path, monkey
     shipment_pass = [finding for finding in access_findings if finding.sheet == "SHIPMENT" and finding.severity == "info"]
     assert summary_pass
     assert shipment_pass
+    assert all("placeholder" not in finding.message.casefold() for finding in summary_pass + shipment_pass)
+    assert all("until detailed" not in finding.recommendation.casefold() for finding in summary_pass + shipment_pass)
+
+
+def test_reference_path_resolution_supports_repo_and_container_layouts():
+    repo_layout = Path("/workspace/src/espen_sql_api/jap_validation/validators/jrsm.py")
+    container_layout = Path("/code/espen_sql_api/jap_validation/validators/jrsm.py")
+
+    assert jrsm._project_root_for_module_path(repo_layout) == Path("/workspace")
+    assert jrsm._project_root_for_module_path(container_layout) == Path("/code")

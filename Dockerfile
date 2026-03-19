@@ -49,6 +49,7 @@ RUN addgroup --system --gid 1001 fastapi \
 
 WORKDIR /code
 COPY --chown=fastapi:fastapi src/espen_sql_api /code/espen_sql_api
+COPY --chown=fastapi:fastapi docs/jrsm_summary_shipment_validation_reference.md /code/docs/
 COPY --chown=fastapi:fastapi espen.db /code
 COPY --chown=fastapi:fastapi scripts /code/scripts
 
