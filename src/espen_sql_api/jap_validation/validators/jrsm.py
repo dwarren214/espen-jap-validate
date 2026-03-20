@@ -106,15 +106,15 @@ COLUMN_LABEL_OVERRIDES = {
         "M": "Remaining in stock",
     },
 }
-def _project_root_for_module_path(module_path: Path) -> Path:
-    package_root = module_path.parent.parent.parent
-    workspace_root = package_root.parent
-    return workspace_root.parent if workspace_root.name == "src" else workspace_root
+
+
+def _summary_shipment_reference_doc_path_for_module_path(module_path: Path) -> Path:
+    jap_validation_dir = module_path.parent.parent
+    return jap_validation_dir / "specs/jrsm_summary_shipment_validation_reference.md"
 
 
 SUMMARY_SHIPMENT_REFERENCE_DOC_PATH = (
-    _project_root_for_module_path(Path(__file__).resolve(strict=True))
-    / "docs/jrsm_summary_shipment_validation_reference.md"
+    _summary_shipment_reference_doc_path_for_module_path(Path(__file__).resolve(strict=True))
 )
 SUMMARY_SHIPMENT_ANCHOR_CELLS = {
     "SUMMARY": ["A1", "G12", "B61", "C61"],
@@ -622,7 +622,10 @@ def _evaluate_story10_summary_shipment_placeholder(
             rule_id="JRSM.SUMMARY_SHIPMENT.SPEC_NOT_CONFIGURED",
             severity="info",
             message="Detailed SUMMARY/SHIPMENT validation reference is not configured; running placeholder checks only.",
-            recommendation="Add docs/jrsm_summary_shipment_validation_reference.md to enable detailed Story 10+ rules.",
+            recommendation=(
+                "Add src/espen_sql_api/jap_validation/specs/jrsm_summary_shipment_validation_reference.md "
+                "to enable detailed Story 10+ rules."
+            ),
             expected=str(SUMMARY_SHIPMENT_REFERENCE_DOC_PATH),
             actual="MISSING_REFERENCE_DOC",
         )

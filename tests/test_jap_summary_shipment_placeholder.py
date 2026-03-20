@@ -99,9 +99,13 @@ def test_normal_workbook_emits_basic_access_pass_findings(tmp_path: Path, monkey
     assert all("until detailed" not in finding.recommendation.casefold() for finding in summary_pass + shipment_pass)
 
 
-def test_reference_path_resolution_supports_repo_and_container_layouts():
+def test_reference_path_resolution_uses_tracked_specs_directory():
     repo_layout = Path("/workspace/src/espen_sql_api/jap_validation/validators/jrsm.py")
     container_layout = Path("/code/espen_sql_api/jap_validation/validators/jrsm.py")
 
-    assert jrsm._project_root_for_module_path(repo_layout) == Path("/workspace")
-    assert jrsm._project_root_for_module_path(container_layout) == Path("/code")
+    assert jrsm._summary_shipment_reference_doc_path_for_module_path(repo_layout) == Path(
+        "/workspace/src/espen_sql_api/jap_validation/specs/jrsm_summary_shipment_validation_reference.md"
+    )
+    assert jrsm._summary_shipment_reference_doc_path_for_module_path(container_layout) == Path(
+        "/code/espen_sql_api/jap_validation/specs/jrsm_summary_shipment_validation_reference.md"
+    )
