@@ -6,6 +6,7 @@ from datetime import date, datetime
 from pathlib import Path
 import re
 from typing import Any
+import unicodedata
 
 from openpyxl import load_workbook
 from openpyxl.formula.translate import Translator
@@ -28,7 +29,83 @@ REQUIRED_SHEETS = [
     "SHIPMENT",
     "DATA_POLICY",
 ]
-EXPECTED_VERSION_MARKER = "Joint request for selected PC medicines"
+LANGUAGE_PROFILE_RULE_ID = "JRSM.TEMPLATE.LANGUAGE_PROFILE"
+VERSION_MARKER_RULE_ID = "JRSM.TEMPLATE.VERSION_MARKER"
+SUPPORTED_TEMPLATE_STATUS = "supported"
+UNSUPPORTED_VERSION_STATUS = "unsupported_version"
+UNDETECTED_LANGUAGE_STATUS = "undetected_language"
+JRSM_LANGUAGE_PROFILES = {
+    "en": {
+        "label": "English",
+        "supported_markers": ("Joint request for selected PC medicines v.4.4",),
+        "marker_prefixes": ("Joint request for selected PC medicines",),
+        "fallback_header_tokens": {"H7": "LF", "I7": "Oncho", "J7": "STH", "K7": "SCH"},
+        "formula_literals": {
+            "Endemic but PC is not required": "Endemic but PC is not required",
+            "Non-endemic": "Non-endemic",
+            "Endemic": "Endemic",
+            "Unknown": "Unknown",
+            "Stopped": "Stopped",
+            "Surveillance": "Surveillance",
+            "Not required": "Not required",
+            "Treat with DEC": "Treat with DEC",
+            "Treat with IVM": "Treat with IVM",
+            "Yes": "Yes",
+        },
+        "semantic_literals": {
+            "endemic": {"Endemic"},
+            "non_endemic": {"Non-endemic"},
+            "endemic_but_pc_not_required": {"Endemic but PC is not required"},
+        },
+    },
+    "fr": {
+        "label": "French",
+        "supported_markers": ("Formulaire de demande commune de médicaments pour CP v.4.5",),
+        "marker_prefixes": ("Formulaire de demande commune de médicaments pour CP",),
+        "fallback_header_tokens": {"H7": "FL", "I7": "Oncho", "J7": "STH", "K7": "SCH"},
+        "formula_literals": {
+            "Endemic but PC is not required": "Endémique mais pas de CP",
+            "Non-endemic": "Non endémique",
+            "Endemic": "Endémique",
+            "Unknown": "Inconnu",
+            "Stopped": "Interrompu",
+            "Surveillance": "Surveillance",
+            "Not required": "Non requis",
+            "Treat with DEC": "Traiter avec DEC",
+            "Treat with IVM": "Traiter avec IVM",
+            "Yes": "Oui",
+        },
+        "semantic_literals": {
+            "endemic": {"Endémique"},
+            "non_endemic": {"Non endémique"},
+            "endemic_but_pc_not_required": {"Endémique mais pas de CP"},
+        },
+    },
+    "es": {
+        "label": "Spanish",
+        "supported_markers": ("Solicitud conjunta de medicamentos seleccionados para QP v.4.5",),
+        "marker_prefixes": ("Solicitud conjunta de medicamentos seleccionados para QP",),
+        "fallback_header_tokens": {"H7": "FL", "I7": "Onco", "J7": "HTS", "K7": "ESQ"},
+        "formula_literals": {
+            "Endemic but PC is not required": "Endémico pero no requiere QP",
+            "Non-endemic": "No endémico",
+            "Endemic": "Endémico",
+            "Unknown": "Desconocido",
+            "Stopped": "Suspendida",
+            "Surveillance": "Vigilancia",
+            "Not required": "No requerido",
+            "Treat with DEC": "Tratar con DEC",
+            "Treat with IVM": "Tratar con IVM",
+            "Yes": "Sí",
+        },
+        "semantic_literals": {
+            "endemic": {"Endémico"},
+            "non_endemic": {"No endémico"},
+            "endemic_but_pc_not_required": {"Endémico pero no requiere QP"},
+        },
+    },
+}
+EXPECTED_VERSION_MARKER = JRSM_LANGUAGE_PROFILES["en"]["marker_prefixes"][0]
 MODULE_VISIBILITY_SHEETS = ["DEC", "IVM", "IVM+", "ALB_MBD", "PZQ"]
 CORE_EXPECTED_VISIBLE_SHEETS = ["INTRO", "COUNTRY_INFO", "SUMMARY", "SHIPMENT"]
 REQUIRED_INTRO_FIELD_RANGES = [("E37", "E45"), ("E48", "E51")]
@@ -184,12 +261,11 @@ STORY10B_FORMULA_REQUIRED_RULES = {
 
 
 def _has_cell_address(sheet: Worksheet, cell_address: str) -> bool:
-    if coordinate_to_tuple(cell_address) in sheet._cells:
-        return True
-    for merged_range in sheet.merged_cells.ranges:
-        if cell_address in merged_range:
-            return True
-    return False
+    try:
+        _ = sheet[cell_address]
+    except Exception:
+        return False
+    return True
 
 
 def _build_finding(
@@ -228,6 +304,14 @@ def _normalize_text(value: Any) -> str:
     if value is None:
         return ""
     return " ".join(str(value).split()).casefold()
+
+
+def _canonicalize_text(value: Any) -> str:
+    if value is None:
+        return ""
+    normalized = unicodedata.normalize("NFKD", str(value))
+    ascii_text = normalized.encode("ascii", "ignore").decode("ascii")
+    return " ".join(ascii_text.split()).casefold()
 
 
 def _normalize_year(value: Any) -> int | None:
@@ -390,7 +474,159 @@ def _to_float(value: Any) -> float | None:
 
 
 def _is_yes(value: Any) -> bool:
-    return _normalize_text(value) == "yes"
+    return _canonicalize_text(value) in {"yes", "oui", "si"}
+
+
+def _true_if_matches_any(value: Any, candidates: set[str]) -> bool:
+    normalized_value = _canonicalize_text(value)
+    return bool(normalized_value) and normalized_value in {_canonicalize_text(candidate) for candidate in candidates}
+
+
+def _template_profile_supported_markers(profile_code: str) -> set[str]:
+    return {
+        _canonicalize_text(marker)
+        for marker in JRSM_LANGUAGE_PROFILES[profile_code]["supported_markers"]
+    }
+
+
+def _template_profile_marker_prefixes(profile_code: str) -> set[str]:
+    return {
+        _canonicalize_text(marker_prefix)
+        for marker_prefix in JRSM_LANGUAGE_PROFILES[profile_code]["marker_prefixes"]
+    }
+
+
+def _detect_language_from_headers(workbook: Workbook) -> str | None:
+    if "COUNTRY_INFO" not in workbook.sheetnames:
+        return None
+
+    country_info = workbook["COUNTRY_INFO"]
+    for profile_code, profile in JRSM_LANGUAGE_PROFILES.items():
+        expected_tokens = profile.get("fallback_header_tokens", {})
+        if not expected_tokens:
+            continue
+        if all(
+            _canonicalize_text(country_info[cell_address].value) == _canonicalize_text(expected_value)
+            for cell_address, expected_value in expected_tokens.items()
+        ):
+            return profile_code
+    return None
+
+
+def _detect_template_profile(workbook: Workbook, intro_sheet: Worksheet | None) -> dict[str, str | None]:
+    marker_text = ""
+    if intro_sheet is not None and _is_anchor_addressable(intro_sheet, "B2"):
+        b2_value = intro_sheet["B2"].value
+        marker_text = str(b2_value).strip() if b2_value is not None else ""
+    marker_normalized = _canonicalize_text(marker_text)
+
+    if marker_normalized:
+        for profile_code in JRSM_LANGUAGE_PROFILES:
+            if marker_normalized in _template_profile_supported_markers(profile_code):
+                return {
+                    "status": SUPPORTED_TEMPLATE_STATUS,
+                    "language": profile_code,
+                    "marker_text": marker_text,
+                }
+        for profile_code in JRSM_LANGUAGE_PROFILES:
+            if any(
+                marker_normalized.startswith(marker_prefix)
+                for marker_prefix in _template_profile_marker_prefixes(profile_code)
+            ):
+                return {
+                    "status": UNSUPPORTED_VERSION_STATUS,
+                    "language": profile_code,
+                    "marker_text": marker_text,
+                }
+
+    guessed_language = _detect_language_from_headers(workbook)
+    return {
+        "status": UNDETECTED_LANGUAGE_STATUS,
+        "language": guessed_language,
+        "marker_text": marker_text or None,
+    }
+
+
+def _emit_template_profile_finding(findings: list[Finding], profile_state: dict[str, str | None]) -> None:
+    status = profile_state["status"]
+    language = profile_state.get("language")
+    marker_text = profile_state.get("marker_text")
+    language_label = JRSM_LANGUAGE_PROFILES.get(language or "", {}).get("label")
+
+    if status == SUPPORTED_TEMPLATE_STATUS and language and language_label:
+        _build_finding(
+            findings,
+            rule_id=LANGUAGE_PROFILE_RULE_ID,
+            severity="info",
+            message=f"Detected supported {language_label} JRSM template profile.",
+            recommendation="No action required.",
+            sheet="INTRO",
+            cell="B2",
+            expected="Supported JRSM language profile",
+            actual=language,
+        )
+        return
+
+    if status == UNSUPPORTED_VERSION_STATUS and language and language_label:
+        _build_finding(
+            findings,
+            rule_id=LANGUAGE_PROFILE_RULE_ID,
+            severity="warn",
+            message=f"Detected {language_label} JRSM workbook language, but the template version is outside the supported baseline.",
+            recommendation=f"Use the current supported {language_label} JRSM template before relying on full deterministic validation.",
+            sheet="INTRO",
+            cell="B2",
+            expected=JRSM_LANGUAGE_PROFILES[language]["supported_markers"][0],
+            actual=marker_text or "BLANK_OR_MISSING",
+        )
+        return
+
+    _build_finding(
+        findings,
+        rule_id=LANGUAGE_PROFILE_RULE_ID,
+        severity="warn",
+        message="JRSM workbook language/profile could not be confidently detected.",
+        recommendation="Use a current supported English, French, or Spanish JRSM template with the standard INTRO!B2 marker.",
+        sheet="INTRO",
+        cell="B2",
+        expected="Supported JRSM template marker in INTRO!B2",
+        actual=marker_text or "BLANK_OR_MISSING",
+    )
+
+
+def _formula_literal_map_for_language(template_language: str | None) -> dict[str, str]:
+    if template_language is None:
+        return {}
+    profile = JRSM_LANGUAGE_PROFILES.get(template_language)
+    if not profile:
+        return {}
+    return profile["formula_literals"]
+
+
+def _localize_formula_literals(formula: str, *, template_language: str | None) -> str:
+    literal_map = _formula_literal_map_for_language(template_language)
+    if not literal_map:
+        return formula
+
+    localized_formula = formula
+    for english_literal in sorted(literal_map, key=len, reverse=True):
+        localized_formula = localized_formula.replace(
+            f'"{english_literal}"',
+            f'"{literal_map[english_literal]}"',
+        )
+    return localized_formula
+
+
+def _matches_template_semantic_literal(
+    value: Any,
+    *,
+    template_language: str | None,
+    semantic_key: str,
+) -> bool:
+    if template_language is None or template_language not in JRSM_LANGUAGE_PROFILES:
+        return False
+    candidates = JRSM_LANGUAGE_PROFILES[template_language]["semantic_literals"].get(semantic_key, set())
+    return _true_if_matches_any(value, candidates)
 
 
 def _translate_formula_to_target(*, formula: str, source_cell: str, target_cell: str) -> str:
@@ -439,6 +675,7 @@ def _evaluate_story9_formula_governance(
     findings: list[Finding],
     iu_start_row: int,
     iu_end_row: int | None,
+    template_language: str | None,
 ) -> None:
     formula_spec, formula_spec_error = load_jrsm_formula_spec()
     cell_color_map, cell_color_map_error = load_jrsm_cell_color_map()
@@ -486,6 +723,10 @@ def _evaluate_story9_formula_governance(
 
         if not _is_formula_value(actual_value):
             actual_text = _format_actual_value(actual_value)
+            localized_expected_formula = _localize_formula_literals(
+                expected_formula,
+                template_language=template_language,
+            )
             _build_finding(
                 findings,
                 rule_id="JRSM.FORMULA.GOVERNED_FORMULA_PRESENT",
@@ -505,13 +746,17 @@ def _evaluate_story9_formula_governance(
                 recommendation=recommendation,
                 sheet=sheet_name,
                 cell=cell_address,
-                expected=expected_formula,
+                expected=localized_expected_formula,
                 actual=actual_text,
             )
             return
 
         actual_formula = str(actual_value)
-        if _normalize_formula(actual_formula) == _normalize_formula(expected_formula):
+        localized_expected_formula = _localize_formula_literals(
+            expected_formula,
+            template_language=template_language,
+        )
+        if _normalize_formula(actual_formula) == _normalize_formula(localized_expected_formula):
             return
 
         _build_finding(
@@ -522,7 +767,7 @@ def _evaluate_story9_formula_governance(
             recommendation=recommendation,
             sheet=sheet_name,
             cell=cell_address,
-            expected=expected_formula,
+            expected=localized_expected_formula,
             actual=actual_formula,
         )
 
@@ -871,6 +1116,7 @@ def _evaluate_story10b_summary_shipment_detailed(
     *,
     workbook: Workbook,
     findings: list[Finding],
+    template_language: str | None,
 ) -> None:
     if not SUMMARY_SHIPMENT_REFERENCE_DOC_PATH.exists():
         return
@@ -896,6 +1142,10 @@ def _evaluate_story10b_summary_shipment_detailed(
         for cell_address, expected_formula in canonical_by_cell.items():
             actual_value = sheet[cell_address].value
             severity = _story10b_formula_severity(sheet_name, cell_address)
+            localized_expected_formula = _localize_formula_literals(
+                expected_formula,
+                template_language=template_language,
+            )
             if not _is_formula_value(actual_value):
                 if _should_suppress_story10b_formula_finding(
                     findings=findings,
@@ -912,13 +1162,13 @@ def _evaluate_story10b_summary_shipment_detailed(
                     recommendation="Restore the canonical formula from template baseline for this cell.",
                     sheet=sheet_name,
                     cell=cell_address,
-                    expected=expected_formula,
+                    expected=localized_expected_formula,
                     actual=_format_actual_value(actual_value),
                 )
                 continue
 
             actual_formula = str(actual_value)
-            if _normalize_formula(actual_formula) == _normalize_formula(expected_formula):
+            if _normalize_formula(actual_formula) == _normalize_formula(localized_expected_formula):
                 continue
             if _should_suppress_story10b_formula_finding(
                 findings=findings,
@@ -936,7 +1186,7 @@ def _evaluate_story10b_summary_shipment_detailed(
                 recommendation="Restore the canonical formula from template baseline for this cell.",
                 sheet=sheet_name,
                 cell=cell_address,
-                expected=expected_formula,
+                expected=localized_expected_formula,
                 actual=actual_formula,
             )
 
@@ -1011,6 +1261,10 @@ def validate_jrsm_workbook(
         )
 
     intro_sheet = workbook["INTRO"] if "INTRO" in workbook.sheetnames else None
+    template_profile = _detect_template_profile(workbook, intro_sheet)
+    template_language = template_profile.get("language")
+    template_supported = template_profile["status"] == SUPPORTED_TEMPLATE_STATUS
+    _emit_template_profile_finding(findings, template_profile)
     if intro_sheet is None:
         _build_finding(
             findings,
@@ -1024,7 +1278,7 @@ def validate_jrsm_workbook(
         )
         _build_finding(
             findings,
-            rule_id="JRSM.TEMPLATE.VERSION_MARKER",
+            rule_id=VERSION_MARKER_RULE_ID,
             severity="warn",
             message="Cannot evaluate template version marker because INTRO sheet is missing.",
             recommendation="Provide a workbook with INTRO!B2 populated by template generation.",
@@ -1049,25 +1303,46 @@ def validate_jrsm_workbook(
 
         b2_value = intro_sheet["B2"].value if _has_cell_address(intro_sheet, "B2") else None
         b2_text = str(b2_value).strip() if b2_value is not None else ""
-        if EXPECTED_VERSION_MARKER.lower() in b2_text.lower():
+        if template_supported and template_language:
             _build_finding(
                 findings,
-                rule_id="JRSM.TEMPLATE.VERSION_MARKER",
+                rule_id=VERSION_MARKER_RULE_ID,
                 severity="info",
-                message="Template version marker matches expected JRSM signature.",
+                message=(
+                    f"Template version marker matches the supported "
+                    f"{JRSM_LANGUAGE_PROFILES[template_language]['label']} JRSM signature."
+                ),
                 recommendation="No action required.",
                 sheet="INTRO",
                 cell="B2",
-                expected=EXPECTED_VERSION_MARKER,
+                expected=JRSM_LANGUAGE_PROFILES[template_language]["supported_markers"][0],
                 actual=b2_text,
+            )
+        elif template_profile["status"] == UNSUPPORTED_VERSION_STATUS and template_language:
+            _build_finding(
+                findings,
+                rule_id=VERSION_MARKER_RULE_ID,
+                severity="warn",
+                message=(
+                    f"Template version marker does not match the supported "
+                    f"{JRSM_LANGUAGE_PROFILES[template_language]['label']} JRSM signature."
+                ),
+                recommendation=(
+                    f"Use the current supported {JRSM_LANGUAGE_PROFILES[template_language]['label']} "
+                    "JRSM template lineage before relying on formula-governance findings."
+                ),
+                sheet="INTRO",
+                cell="B2",
+                expected=JRSM_LANGUAGE_PROFILES[template_language]["supported_markers"][0],
+                actual=b2_text or "BLANK_OR_MISSING",
             )
         else:
             _build_finding(
                 findings,
-                rule_id="JRSM.TEMPLATE.VERSION_MARKER",
+                rule_id=VERSION_MARKER_RULE_ID,
                 severity="warn",
-                message="Template version marker does not match expected JRSM signature.",
-                recommendation="Confirm workbook was generated from the JRSM v4.4 template lineage.",
+                message="Template version marker is missing or unrecognized for the supported JRSM language profiles.",
+                recommendation="Confirm workbook was generated from the current supported English, French, or Spanish JRSM template lineage.",
                 sheet="INTRO",
                 cell="B2",
                 expected=EXPECTED_VERSION_MARKER,
@@ -1126,10 +1401,26 @@ def validate_jrsm_workbook(
         e39_value = intro_sheet["E39"].value if _has_cell_address(intro_sheet, "E39") else None
         e41_value = intro_sheet["E41"].value if _has_cell_address(intro_sheet, "E41") else None
         e43_value = intro_sheet["E43"].value if _has_cell_address(intro_sheet, "E43") else None
-        has_lf = _normalize_text(e37_value) != "non-endemic"
-        has_oncho = _normalize_text(e39_value) != "non-endemic"
-        has_sth = _normalize_text(e41_value) != "non-endemic"
-        has_sch = _normalize_text(e43_value) != "non-endemic"
+        has_lf = not _matches_template_semantic_literal(
+            e37_value,
+            template_language=template_language,
+            semantic_key="non_endemic",
+        )
+        has_oncho = not _matches_template_semantic_literal(
+            e39_value,
+            template_language=template_language,
+            semantic_key="non_endemic",
+        )
+        has_sth = not _matches_template_semantic_literal(
+            e41_value,
+            template_language=template_language,
+            semantic_key="non_endemic",
+        )
+        has_sch = not _matches_template_semantic_literal(
+            e43_value,
+            template_language=template_language,
+            semantic_key="non_endemic",
+        )
 
         n_raw_value = intro_sheet["E45"].value if _has_cell_address(intro_sheet, "E45") else None
         n_value = _normalize_positive_int(n_raw_value)
@@ -1270,6 +1561,8 @@ def validate_jrsm_workbook(
             )
 
         context = {
+            "template_language": template_language,
+            "template_profile_status": template_profile["status"],
             "has_lf": has_lf,
             "has_oncho": has_oncho,
             "has_sth": has_sth,
@@ -1474,20 +1767,24 @@ def validate_jrsm_workbook(
                         )
 
         # Story 9: submitter-day formula governance checks.
-        _evaluate_story9_formula_governance(
-            workbook=workbook,
-            findings=findings,
-            iu_start_row=iu_start_row,
-            iu_end_row=iu_end_row,
-        )
+        if template_supported:
+            _evaluate_story9_formula_governance(
+                workbook=workbook,
+                findings=findings,
+                iu_start_row=iu_start_row,
+                iu_end_row=iu_end_row,
+                template_language=template_language,
+            )
         _evaluate_story10_summary_shipment_placeholder(
             workbook=workbook,
             findings=findings,
         )
-        _evaluate_story10b_summary_shipment_detailed(
-            workbook=workbook,
-            findings=findings,
-        )
+        if template_supported:
+            _evaluate_story10b_summary_shipment_detailed(
+                workbook=workbook,
+                findings=findings,
+                template_language=template_language,
+            )
 
     return ValidationEngineResult(
         status="completed",

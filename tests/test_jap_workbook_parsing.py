@@ -165,12 +165,18 @@ def test_missing_required_sheet_produces_required_sheet_finding(client: TestClie
     assert any("IVM+" in finding["message"] for finding in sheet_findings)
 
 
-def test_missing_required_cell_produces_required_cell_finding(client: TestClient, auth_headers):
+def test_blank_unmaterialized_intro_year_cell_produces_year_mismatch_instead_of_addressability_error(
+    client: TestClient,
+    auth_headers,
+):
     workbook_bytes = _build_workbook_bytes(missing_intro_cells={"E35"})
     body = _upload_and_validate(client, auth_headers, workbook_bytes)
     required_cell_findings = [finding for finding in body["findings"] if finding["rule_id"] == "JRSM.TEMPLATE.REQUIRED_CELLS"]
-    assert required_cell_findings
-    assert any("INTRO!E35" in (finding.get("actual") or "") for finding in required_cell_findings)
+    assert not required_cell_findings
+
+    year_findings = [finding for finding in body["findings"] if finding["rule_id"] == "JRSM.INTRO.YEAR_MATCH"]
+    assert year_findings
+    assert any(finding.get("cell") == "E35" for finding in year_findings)
 
 
 def test_version_marker_emits_info_or_warn_signal(client: TestClient, auth_headers):
