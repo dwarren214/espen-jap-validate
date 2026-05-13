@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+import io
+import logging
 from pathlib import Path
 import re
 from typing import Any
 import unicodedata
+import zipfile
 
 from openpyxl import load_workbook
 from openpyxl.formula.translate import Translator
@@ -16,6 +19,8 @@ from openpyxl.worksheet.worksheet import Worksheet
 
 from ..models import Finding, ValidationEngineResult
 from ..specs_loader import load_jrsm_cell_color_map, load_jrsm_formula_spec
+
+logger = logging.getLogger(__name__)
 
 REQUIRED_SHEETS = [
     "INTRO",
@@ -127,6 +132,72 @@ REQUIRED_INTRO_CELLS = [
     "E50",
     "E51",
 ]
+WORKSHEET_XML_PATH_PREFIX = "xl/worksheets/"
+WIDTHPT_COL_ATTRIBUTE_RE = re.compile(
+    rb"""(<(?:[A-Za-z_][\w.-]*:)?col\b[^>]*?)\swidthPt=(?:"[^"]*"|'[^']*')([^>]*>)"""
+)
+
+
+def _is_known_widthpt_column_dimension_error(exc: Exception) -> bool:
+    error_text = str(exc)
+    return "ColumnDimension" in error_text and "widthPt" in error_text
+
+
+def _is_worksheet_xml_path(archive_path: str) -> bool:
+    if not archive_path.startswith(WORKSHEET_XML_PATH_PREFIX) or not archive_path.endswith(".xml"):
+        return False
+    relative_path = archive_path.removeprefix(WORKSHEET_XML_PATH_PREFIX)
+    return "/" not in relative_path
+
+
+def _strip_widthpt_attributes_from_worksheet_cols(xml_bytes: bytes) -> tuple[bytes, int]:
+    """Remove producer-only widthPt attributes from worksheet column definitions."""
+    return WIDTHPT_COL_ATTRIBUTE_RE.subn(rb"\1\2", xml_bytes)
+
+
+def _build_widthpt_sanitized_workbook_stream(workbook_path: Path) -> tuple[io.BytesIO, int]:
+    sanitized_attribute_count = 0
+    sanitized_stream = io.BytesIO()
+
+    with zipfile.ZipFile(workbook_path, "r") as source_zip:
+        with zipfile.ZipFile(sanitized_stream, "w") as target_zip:
+            target_zip.comment = source_zip.comment
+            for source_info in source_zip.infolist():
+                payload = source_zip.read(source_info.filename)
+                if _is_worksheet_xml_path(source_info.filename):
+                    payload, stripped_count = _strip_widthpt_attributes_from_worksheet_cols(payload)
+                    sanitized_attribute_count += stripped_count
+                target_zip.writestr(source_info, payload)
+
+    sanitized_stream.seek(0)
+    return sanitized_stream, sanitized_attribute_count
+
+
+def _load_workbook_with_widthpt_tolerance(workbook_path: Path) -> tuple[Workbook, dict[str, Any]]:
+    try:
+        workbook = load_workbook(filename=workbook_path, data_only=False)
+    except Exception as exc:
+        if not _is_known_widthpt_column_dimension_error(exc):
+            raise
+
+        sanitized_stream, sanitized_attribute_count = _build_widthpt_sanitized_workbook_stream(workbook_path)
+        if sanitized_attribute_count <= 0:
+            raise
+
+        workbook = load_workbook(filename=sanitized_stream, data_only=False)
+        logger.info(
+            "event=jrsm_workbook_tolerant_parse_fallback|sanitized_widthpt_attributes=%s",
+            sanitized_attribute_count,
+        )
+        return workbook, {
+            "workbook_parse_mode": "openpyxl_widthpt_sanitized",
+            "widthpt_sanitized_attribute_count": sanitized_attribute_count,
+        }
+
+    return workbook, {
+        "workbook_parse_mode": "openpyxl",
+        "widthpt_sanitized_attribute_count": 0,
+    }
 
 
 def _expand_cell_range(start: str, end: str) -> list[str]:
@@ -1274,7 +1345,8 @@ def validate_jrsm_workbook(
     context: dict[str, Any] = {}
 
     try:
-        workbook = load_workbook(filename=workbook_path, data_only=False)
+        workbook, workbook_parse_context = _load_workbook_with_widthpt_tolerance(workbook_path)
+        context.update(workbook_parse_context)
     except Exception as exc:
         _build_finding(
             findings,
@@ -1629,6 +1701,7 @@ def validate_jrsm_workbook(
             )
 
         context = {
+            **context,
             "template_language": template_language,
             "template_profile_status": template_profile["status"],
             "has_lf": has_lf,
