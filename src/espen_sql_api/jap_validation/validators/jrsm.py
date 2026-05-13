@@ -165,6 +165,7 @@ MODULE_COMPLETENESS_SPECS = [
         "JRSM.IVM.NOT_APPLICABLE",
     ),
 ]
+CONTEXT_OPTIONAL_COUNTRY_INFO_OUTPUT_COLUMNS = {"AA", "AB", "AC", "AD"}
 COLUMN_LABEL_OVERRIDES = {
     "ALB_MBD": {
         "G": "Target population for STH / PreSAC / Rounds",
@@ -447,6 +448,61 @@ def _is_output_column_expected(
     return True
 
 
+def _is_column_hidden(sheet: Worksheet, column_letter: str) -> bool:
+    column_dimension = sheet.column_dimensions.get(column_letter)
+    return bool(column_dimension and column_dimension.hidden)
+
+
+def _cell_column_letter(cell_address: str) -> str:
+    _, column_index = coordinate_to_tuple(cell_address)
+    return get_column_letter(column_index)
+
+
+def _has_any_value_in_columns(*, sheet: Worksheet, columns: set[str], rows: list[int]) -> bool:
+    return any(not _is_blank(sheet[f"{column}{row}"].value) for column in columns for row in rows)
+
+
+def _is_context_optional_country_info_output_column_required(
+    *,
+    sheet: Worksheet,
+    column_letter: str,
+    active_rows: list[int],
+) -> bool:
+    if column_letter not in CONTEXT_OPTIONAL_COUNTRY_INFO_OUTPUT_COLUMNS:
+        return True
+    return _has_any_value_in_columns(
+        sheet=sheet,
+        columns=CONTEXT_OPTIONAL_COUNTRY_INFO_OUTPUT_COLUMNS,
+        rows=active_rows,
+    )
+
+
+def _build_reviewable_sheet_visibility(
+    *,
+    workbook: Workbook,
+    expected_sheet_visibility: dict[str, bool],
+) -> dict[str, bool]:
+    reviewable_sheet_visibility: dict[str, bool] = {}
+    for sheet_name in REQUIRED_SHEETS:
+        if sheet_name not in workbook.sheetnames:
+            reviewable_sheet_visibility[sheet_name] = False
+            continue
+
+        if sheet_name in CORE_EXPECTED_VISIBLE_SHEETS:
+            reviewable_sheet_visibility[sheet_name] = True
+            continue
+
+        if sheet_name in MODULE_VISIBILITY_SHEETS:
+            reviewable_sheet_visibility[sheet_name] = (
+                bool(expected_sheet_visibility.get(sheet_name, False))
+                and workbook[sheet_name].sheet_state == "visible"
+            )
+            continue
+
+        reviewable_sheet_visibility[sheet_name] = workbook[sheet_name].sheet_state == "visible"
+    return reviewable_sheet_visibility
+
+
 def _is_formula_value(value: Any) -> bool:
     return isinstance(value, str) and value.startswith("=")
 
@@ -676,6 +732,7 @@ def _evaluate_story9_formula_governance(
     iu_start_row: int,
     iu_end_row: int | None,
     template_language: str | None,
+    reviewable_sheet_visibility: dict[str, bool],
 ) -> None:
     formula_spec, formula_spec_error = load_jrsm_formula_spec()
     cell_color_map, cell_color_map_error = load_jrsm_cell_color_map()
@@ -717,6 +774,11 @@ def _evaluate_story9_formula_governance(
             return
 
         sheet = workbook[sheet_name]
+        if not reviewable_sheet_visibility.get(sheet_name, True):
+            return
+        if _is_column_hidden(sheet, _cell_column_letter(cell_address)):
+            return
+
         actual_value = sheet[cell_address].value
         severity = _governance_severity(governance_class)
         recommendation = _governance_recommendation(governance_class)
@@ -777,6 +839,8 @@ def _evaluate_story9_formula_governance(
         if isinstance(iu_sheets, dict):
             for sheet_name in iu_sheet_order:
                 if not isinstance(sheet_name, str):
+                    continue
+                if not reviewable_sheet_visibility.get(sheet_name, True):
                     continue
                 sheet_spec = iu_sheets.get(sheet_name)
                 if not isinstance(sheet_spec, dict):
@@ -1521,6 +1585,10 @@ def validate_jrsm_workbook(
                 "PZQ": has_sch,
             }
         )
+        reviewable_sheet_visibility = _build_reviewable_sheet_visibility(
+            workbook=workbook,
+            expected_sheet_visibility=expected_sheet_visibility,
+        )
         actual_sheet_visibility_text = ", ".join(
             [
                 f"{sheet}={workbook[sheet].sheet_state}"
@@ -1580,6 +1648,7 @@ def validate_jrsm_workbook(
             "iu_window_end_row": iu_end_row,
             "expected_visible_module_count": expected_visible_module_count,
             "expected_sheet_visibility": expected_sheet_visibility,
+            "reviewable_sheet_visibility": reviewable_sheet_visibility,
         }
 
         # Story 7: COUNTRY_INFO active-row completeness checks.
@@ -1648,6 +1717,8 @@ def validate_jrsm_workbook(
             required_output_columns: list[str] = []
             for column_index in range(column_index_from_string("V"), column_index_from_string("AD") + 1):
                 column = get_column_letter(column_index)
+                if _is_column_hidden(country_info_sheet, column):
+                    continue
                 header = _header_text(country_info_sheet, column)
                 if not _is_output_column_expected(
                     header_text=header,
@@ -1656,6 +1727,12 @@ def validate_jrsm_workbook(
                     has_sth=has_sth,
                     has_sch=has_sch,
                     has_ida=has_ida if has_ida_known else None,
+                ):
+                    continue
+                if not _is_context_optional_country_info_output_column_required(
+                    sheet=country_info_sheet,
+                    column_letter=column,
+                    active_rows=active_rows,
                 ):
                     continue
                 required_output_columns.append(column)
@@ -1699,35 +1776,27 @@ def validate_jrsm_workbook(
                 module_sheet_name,
                 required_columns,
                 required_rule_id,
-                not_applicable_rule_id,
+                _,
             ) in MODULE_COMPLETENESS_SPECS:
                 if module_sheet_name not in workbook.sheetnames:
                     continue
 
                 module_sheet = workbook[module_sheet_name]
-                expected_visible = bool(expected_sheet_visibility.get(module_sheet_name, False))
-                actual_visible = module_sheet.sheet_state == "visible"
+                if not reviewable_sheet_visibility.get(module_sheet_name, False):
+                    continue
 
-                if not expected_visible:
-                    if not actual_visible:
-                        _build_finding(
-                            findings,
-                            rule_id=not_applicable_rule_id,
-                            severity="info",
-                            message=f"{module_sheet_name} module is not applicable for this endemicity profile; row checks skipped.",
-                            recommendation="No action required.",
-                            sheet=module_sheet_name,
-                            expected="hidden",
-                            actual=module_sheet.sheet_state,
-                        )
+                reviewable_required_columns = [
+                    column for column in required_columns if not _is_column_hidden(module_sheet, column)
+                ]
+                if not reviewable_required_columns:
                     continue
 
                 blank_rows_by_column = {
                     column: [row for row in active_rows if _is_blank(module_sheet[f"{column}{row}"].value)]
-                    for column in required_columns
+                    for column in reviewable_required_columns
                 }
                 all_blank_columns = [
-                    column for column in required_columns if len(blank_rows_by_column[column]) == len(active_rows)
+                    column for column in reviewable_required_columns if len(blank_rows_by_column[column]) == len(active_rows)
                 ]
                 for grouped_columns in _group_contiguous_columns(all_blank_columns):
                     _build_finding(
@@ -1748,7 +1817,7 @@ def validate_jrsm_workbook(
                         actual="SYSTEMATICALLY_BLANK",
                     )
 
-                for column in required_columns:
+                for column in reviewable_required_columns:
                     if column in all_blank_columns:
                         continue
                     column_descriptor = f"column {column} ({_column_label(module_sheet, column)})"
@@ -1774,6 +1843,7 @@ def validate_jrsm_workbook(
                 iu_start_row=iu_start_row,
                 iu_end_row=iu_end_row,
                 template_language=template_language,
+                reviewable_sheet_visibility=reviewable_sheet_visibility,
             )
         _evaluate_story10_summary_shipment_placeholder(
             workbook=workbook,

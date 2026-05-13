@@ -174,7 +174,7 @@ def test_ivm_required_column_m_missing(tmp_path: Path):
     assert any(finding.cell == "M10" for finding in ivm_findings)
 
 
-def test_not_applicable_modules_emit_info_and_skip_required_checks(tmp_path: Path):
+def test_not_applicable_modules_skip_required_checks_without_sheet_findings(tmp_path: Path):
     workbook_path = tmp_path / "not_applicable.xlsx"
     _build_workbook(
         workbook_path,
@@ -195,13 +195,7 @@ def test_not_applicable_modules_emit_info_and_skip_required_checks(tmp_path: Pat
     }
     assert not any(finding.rule_id in required_rule_ids for finding in result.findings)
 
-    not_applicable_findings = [f for f in result.findings if f.rule_id.endswith(".NOT_APPLICABLE")]
-    assert {finding.rule_id for finding in not_applicable_findings} == {
-        "JRSM.ALB_MBD.NOT_APPLICABLE",
-        "JRSM.PZQ.NOT_APPLICABLE",
-        "JRSM.IVM.NOT_APPLICABLE",
-    }
-    assert all(finding.severity == "info" for finding in not_applicable_findings)
+    assert not any(finding.sheet in {"ALB_MBD", "PZQ", "IVM"} for finding in result.findings)
 
 
 def test_module_checks_apply_only_to_active_rows_not_headers(tmp_path: Path):

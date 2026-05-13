@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import Any
 from uuid import uuid4
 
 from .models import (
@@ -132,7 +133,7 @@ def _parse_missing_required_sheets(findings: list[Finding]) -> set[str]:
     return missing_sheets
 
 
-def _build_sheet_summaries(findings: list[Finding]) -> list[SheetValidationSummary]:
+def _build_sheet_summaries(findings: list[Finding], *, context: dict[str, Any] | None = None) -> list[SheetValidationSummary]:
     if any(finding.rule_id == "JRSM.WORKBOOK.FILE_PARSE" and finding.severity == "error" for finding in findings):
         return [
             SheetValidationSummary(sheet=sheet_name, status="not_evaluated", error_count=0, warn_count=0)
@@ -157,11 +158,20 @@ def _build_sheet_summaries(findings: list[Finding]) -> list[SheetValidationSumma
         elif finding.severity == "warn":
             counts_by_sheet[finding.sheet]["warn_count"] += 1
 
+    reviewable_sheet_visibility = {}
+    if context and isinstance(context.get("reviewable_sheet_visibility"), dict):
+        reviewable_sheet_visibility = context["reviewable_sheet_visibility"]
+
     sheet_summaries: list[SheetValidationSummary] = []
     for sheet_name in REQUIRED_SHEETS:
         error_count = counts_by_sheet[sheet_name]["error_count"]
         warn_count = counts_by_sheet[sheet_name]["warn_count"]
-        status = "issues_found" if error_count or warn_count else "passed"
+        if error_count or warn_count:
+            status = "issues_found"
+        elif reviewable_sheet_visibility.get(sheet_name) is False:
+            status = "not_evaluated"
+        else:
+            status = "passed"
         sheet_summaries.append(
             SheetValidationSummary(
                 sheet=sheet_name,
@@ -197,7 +207,7 @@ def build_validation_response(
         validation_outcome=validation_result.validation_outcome,
         summary_text=_build_summary_text(summary),
         executive_summary=summary,
-        sheet_summaries=_build_sheet_summaries(validation_result.findings),
+        sheet_summaries=_build_sheet_summaries(validation_result.findings, context=validation_result.context),
         findings=findings,
         response_text_blocks=_build_text_blocks(filtered_findings, summary),
         findings_truncated=True if truncated else None,
